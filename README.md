@@ -5,7 +5,8 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 **Live:** https://reactivation-desk.vercel.app  
 **Repo:** https://github.com/mauriciohollando/reactivation-desk  
 **Memo:** https://reactivation-desk.vercel.app/memo  
-**Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv
+**Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv  
+**Messy CRM export (upload demo):** https://reactivation-desk.vercel.app/meeting-crm-export.csv
 
 ## Guided funnel
 
