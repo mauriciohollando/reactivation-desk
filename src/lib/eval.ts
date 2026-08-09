@@ -1,11 +1,10 @@
 import { rankProspects } from "./rank";
-import { buildSyntheticBook } from "./syntheticBook";
+import { buildDemoAdvisorBook } from "./demoBook";
 import type { Prospect } from "./types";
 
-/** Labeled “should prioritize” ids inside the synthetic book for demo eval. */
+/** Labeled “should prioritize” ids inside the demo book for eval. */
 export function labeledPriorityIds(book: Prospect[]): Set<string> {
   const ranked = rankProspects(book, {});
-  // Ground truth proxy: high opportunity + reachable + not do-not-cold-call
   const labels = ranked
     .filter(
       (p) =>
@@ -14,7 +13,7 @@ export function labeledPriorityIds(book: Prospect[]): Set<string> {
         p.silenceBucket !== "do_not_cold_call" &&
         (Boolean(p.notes) || Boolean(p.segment)),
     )
-    .slice(0, 25)
+    .slice(0, 18)
     .map((p) => p.id);
   return new Set(labels);
 }
@@ -31,12 +30,11 @@ export function precisionAtK(
 }
 
 export function runDemoEval(k = 10) {
-  const book = buildSyntheticBook(120);
+  const book = buildDemoAdvisorBook();
   const relevant = labeledPriorityIds(book);
 
   const modelOrder = rankProspects(book, {}).map((p) => p.id);
 
-  // Deterministic "random" baseline for stable SSR/demo
   const randomOrder = [...book.map((p) => p.id)].sort((a, b) =>
     a < b ? -1 : a > b ? 1 : 0,
   );
