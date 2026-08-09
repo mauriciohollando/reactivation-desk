@@ -9,7 +9,7 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 
 ## Guided funnel
 
-1. **Import** — panel demo, sample book, or CSV  
+1. **Import** — sample book or CSV  
 2. **Diagnosis** — callable / careful / off-limits (trust audit)  
 3. **This week** — capacity-aware list + excluded drawer  
 4. **Call** — one card, hard stops, outcome logging  

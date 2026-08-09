@@ -63,7 +63,6 @@ export function DeskApp() {
   const weekBudget = useDesk((s) => s.weekBudget);
   const preferWarm = useDesk((s) => s.preferWarm);
   const loadDemoBook = useDesk((s) => s.loadDemoBook);
-  const runPanelDemo = useDesk((s) => s.runPanelDemo);
   const loadProspects = useDesk((s) => s.loadProspects);
   const toggleSelect = useDesk((s) => s.toggleSelect);
   const buildWeekPlan = useDesk((s) => s.buildWeekPlan);
@@ -278,10 +277,7 @@ export function DeskApp() {
             <span>Silence-aware</span>
           </div>
           <div className="toolbar">
-            <button type="button" className="btn primary lg" onClick={runPanelDemo}>
-              Run panel demo
-            </button>
-            <button type="button" className="btn" onClick={loadDemoBook}>
+            <button type="button" className="btn primary lg" onClick={loadDemoBook}>
               Use sample advisor book
             </button>
             <button type="button" className="btn" onClick={() => fileRef.current?.click()}>

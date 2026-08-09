@@ -33,7 +33,6 @@ type State = {
   weekBudget: WeekBudget;
   preferWarm: boolean;
   loadDemoBook: () => void;
-  runPanelDemo: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
   toggleSelect: (id: string) => void;
   buildWeekPlan: (n?: WeekBudget) => void;
@@ -84,27 +83,9 @@ export const useDesk = create<State>()(
         set({
           ...applyBook(
             buildDemoAdvisorBook(),
-            "Panel sample book (disclosed synthetic, Advisor A-like export)",
+            "Sample advisor book (disclosed synthetic, Advisor A-like export)",
           ),
           weekBudget: 10,
-        });
-      },
-      runPanelDemo: () => {
-        const prospects = buildDemoAdvisorBook();
-        const ranked = rankProspects(prospects, {});
-        const top = topCallable(ranked, 10).map((p) => p.id);
-        set({
-          ...applyBook(prospects, "Panel demo: sample book + this week’s 10 ready"),
-          selectedIds: top,
-          weekBudget: 10,
-          campaign: {
-            id: `camp-${Date.now()}`,
-            name: `Week of ${new Date().toISOString().slice(0, 10)}`,
-            createdAt: new Date().toISOString(),
-            prospectIds: top,
-          },
-          step: "plan",
-          callIndex: 0,
         });
       },
       loadProspects: (prospects, sourceLabel) =>
