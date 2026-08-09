@@ -4,6 +4,12 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Papa from "papaparse";
 import { runDemoEval } from "@/lib/eval";
+import { buildBookPatterns } from "@/lib/analysisEngine";
+import type {
+  NextBestAction,
+  ProspectAnalysis,
+  WebEvidencePacket,
+} from "@/lib/analysisTypes";
 import {
   FILTERABLE_TAG_IDS,
   type InsightTag,
@@ -68,11 +74,18 @@ export function DeskApp() {
   const weekBudget = useDesk((s) => s.weekBudget);
   const preferWarm = useDesk((s) => s.preferWarm);
   const tagFilters = useDesk((s) => s.tagFilters);
+  const analyses = useDesk((s) => s.analyses);
+  const webEvidence = useDesk((s) => s.webEvidence);
+  const analysisStatus = useDesk((s) => s.analysisStatus);
+  const analysisError = useDesk((s) => s.analysisError);
+  const aiAnalyzedCount = useDesk((s) => s.aiAnalyzedCount);
   const loadDemoBook = useDesk((s) => s.loadDemoBook);
   const loadProspects = useDesk((s) => s.loadProspects);
   const toggleSelect = useDesk((s) => s.toggleSelect);
   const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
   const clearTagFilters = useDesk((s) => s.clearTagFilters);
+  const deepenTopProspects = useDesk((s) => s.deepenTopProspects);
+  const refreshPublicEvidence = useDesk((s) => s.refreshPublicEvidence);
   const buildWeekPlan = useDesk((s) => s.buildWeekPlan);
   const setOutcome = useDesk((s) => s.setOutcome);
   const setTalkEdit = useDesk((s) => s.setTalkEdit);
@@ -89,9 +102,11 @@ export function DeskApp() {
   const [showExcluded, setShowExcluded] = useState(false);
   const [pendingRows, setPendingRows] = useState<Record<string, string>[] | null>(null);
   const [pendingHeaders, setPendingHeaders] = useState<string[]>([]);
+  const [pendingSourceLabel, setPendingSourceLabel] = useState("CSV upload");
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [csvError, setCsvError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const aiResultsRef = useRef<HTMLDivElement>(null);
 
   const rankedLive = useMemo(
     () => rankedFn(),
@@ -132,11 +147,57 @@ export function DeskApp() {
     return FILTERABLE_TAG_IDS.filter((id) => present.has(id));
   }, [rankedLive]);
 
+  const bookPatterns = useMemo(
+    () => buildBookPatterns(rankedLive, analyses),
+    [rankedLive, analyses],
+  );
+  const aiResults = useMemo(() => {
+    const records = rankedLive
+      .map((prospect) => ({ prospect, analysis: analyses[prospect.id] }))
+      .filter(
+        (
+          item,
+        ): item is { prospect: RankedProspect; analysis: ProspectAnalysis } =>
+          item.analysis?.mode === "ai",
+      );
+    const actionCount = (actions: NextBestAction[]) =>
+      records.filter(({ analysis }) => actions.includes(analysis.nextAction)).length;
+    const highlights = [...records]
+      .sort((a, b) => {
+        const signal = (analysis: ProspectAnalysis) =>
+          analysis.contradictions.length * 100 +
+          analysis.timeline.filter((item) => item.status === "overdue").length * 50 +
+          (["call_now", "ask_referrer", "verify_first"].includes(analysis.nextAction) ? 25 : 0) +
+          analysis.evidenceConfidence;
+        return signal(b.analysis) - signal(a.analysis);
+      })
+      .slice(0, 4);
+    return {
+      records,
+      highlights,
+      readyNow: actionCount(["call_now"]),
+      warmRoute: actionCount(["ask_referrer", "email_first"]),
+      verifyFirst: actionCount(["verify_first", "merge_records", "find_contact"]),
+      waitOrStop: actionCount(["wait", "do_not_contact"]),
+      contradictions: records.reduce(
+        (sum, { analysis }) => sum + analysis.contradictions.length,
+        0,
+      ),
+    };
+  }, [rankedLive, analyses]);
+
   const contacted = campaignRows.filter((p) => (outcomes[p.id] ?? p.outcome) !== "queued").length;
   const blockCalling =
     !!importSummary &&
     importSummary.callableThisWeek === 0 &&
     importSummary.total > 0;
+
+  const runDeepAnalysis = async () => {
+    await deepenTopProspects(25);
+    window.requestAnimationFrame(() => {
+      aiResultsRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  };
 
   const parseCsvText = (text: string, label: string) => {
     setCsvError(null);
@@ -155,12 +216,14 @@ export function DeskApp() {
     const suggested = suggestColumnMapping(headers);
     setPendingRows(rows);
     setPendingHeaders(headers);
+    setPendingSourceLabel(label);
     setMapping(suggested);
     if (!suggested.name) {
       setCsvError("Could not detect a Name column. Map columns, then continue.");
       return;
     }
-    loadProspects(prospectsFromMappedRows(rows, suggested), label);
+    // Always let the user confirm the mapping. A real CRM export often contains
+    // plausible-but-wrong columns, so silently accepting a guess is unsafe.
     setCsvError(null);
   };
 
@@ -177,7 +240,7 @@ export function DeskApp() {
     }
     loadProspects(
       prospectsFromMappedRows(pendingRows, mapping),
-      `CSV with column mapping (${pendingRows.length} rows)`,
+      `${pendingSourceLabel} · confirmed mapping · ${pendingRows.length} rows`,
     );
     setCsvError(null);
   };
@@ -199,6 +262,10 @@ export function DeskApp() {
       why_call: p.whyCall,
       why_support: p.whySupport,
       tags: p.tags.map((t) => t.label).join(" | "),
+      evidence_confidence: analyses[p.id]?.evidenceConfidence ?? "",
+      next_best_action: analyses[p.id]?.nextAction ?? "",
+      next_action_reason: analyses[p.id]?.nextActionReason ?? "",
+      public_evidence_status: webEvidence[p.id]?.identityStatus ?? "",
       brief: p.brief,
     }));
     const csv = Papa.unparse(rows);
@@ -260,7 +327,7 @@ export function DeskApp() {
 
       <div className="persist-banner">
         <span className="persist-dot" aria-hidden />
-        Saved in this browser only · No CRM or inbox connection required
+        Local analysis stays in this browser · AI deep analysis is opt-in · No CRM connection
       </div>
 
       {showPricing && (
@@ -372,6 +439,130 @@ export function DeskApp() {
             <Stat label="Duplicate names" value={importSummary.duplicateGroups} warn />
             <Stat label="Evidence coverage" value={`${importSummary.evidenceCoveragePct}%`} />
           </div>
+
+          <div className="ai-analysis-card">
+            <div className="ai-analysis-copy">
+              <div className="ai-kicker">
+                <span className="ai-spark" aria-hidden>✦</span>
+                Hybrid analysis
+              </div>
+              <h3>
+                {aiAnalyzedCount
+                  ? `${aiAnalyzedCount} priority records deepened with AI`
+                  : `${prospects.length.toLocaleString()} records analyzed locally`}
+              </h3>
+              <p>
+                Hard stops stay deterministic. Opt-in AI extracts structured facts, timelines,
+                contradictions, and discovery questions from the top 25 records. Every extracted
+                fact must survive exact-quote validation against your file.
+              </p>
+              <div className="trust-mini">
+                <span>Exact quotes required</span>
+                <span>No autonomous outreach</span>
+                <span>Local fallback always on</span>
+              </div>
+            </div>
+            <div className="ai-analysis-action">
+              <button
+                type="button"
+                className="btn ai-btn"
+                disabled={analysisStatus === "running"}
+                onClick={() => void runDeepAnalysis()}
+              >
+                {analysisStatus === "running"
+                  ? "Deepening analysis…"
+                  : aiAnalyzedCount
+                    ? "Run deep analysis again"
+                    : "Deepen top 25 with AI"}
+              </button>
+              <small>
+                Sends only those 25 rows directly to the configured OpenAI model. No web search in this
+                step.
+              </small>
+            </div>
+            {aiResults.records.length > 0 && (
+              <div className="ai-results" ref={aiResultsRef}>
+                <div className="ai-results-heading">
+                  <div>
+                    <span className="block-label">What AI found</span>
+                    <h4>Your highest-priority findings are ready</h4>
+                    <p>
+                      These recommendations are grounded in the imported fields and quotes. Review
+                      each record before outreach.
+                    </p>
+                  </div>
+                  <button type="button" className="btn ghost small" onClick={() => setStep("review")}>
+                    Review all {aiResults.records.length} AI records
+                  </button>
+                </div>
+                <div className="ai-result-stats">
+                  <AiResultStat value={aiResults.readyNow} label="Call now" tone="good" />
+                  <AiResultStat value={aiResults.warmRoute} label="Use a warm route" />
+                  <AiResultStat value={aiResults.verifyFirst} label="Verify first" tone="warn" />
+                  <AiResultStat value={aiResults.waitOrStop} label="Wait or do not contact" />
+                  <AiResultStat
+                    value={aiResults.contradictions}
+                    label="Contradictions found"
+                    tone={aiResults.contradictions ? "danger" : "good"}
+                  />
+                </div>
+                <div className="ai-highlight-grid">
+                  {aiResults.highlights.map(({ prospect, analysis }) => (
+                    <article className="ai-highlight" key={prospect.id}>
+                      <div className="ai-highlight-title">
+                        <div>
+                          <strong>{prospect.name}</strong>
+                          <span>{prospect.company ?? "No company on file"}</span>
+                        </div>
+                        <span className={`next-action action-${analysis.nextAction}`}>
+                          {ACTION_LABELS[analysis.nextAction]}
+                        </span>
+                      </div>
+                      <p>{analysis.summary}</p>
+                      <div className="ai-highlight-reason">
+                        <span>Why this action</span>
+                        <p>{analysis.nextActionReason}</p>
+                      </div>
+                      <div className="ai-highlight-evidence">
+                        {analysis.facts.slice(0, 3).map((fact, index) => (
+                          <span key={`${fact.label}-${index}`}>
+                            {fact.label}: {fact.value}
+                          </span>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {analysisError && <p className="error">{analysisError}</p>}
+
+          {bookPatterns.length > 0 && (
+            <div className="pattern-section">
+              <div className="section-heading">
+                <div>
+                  <span className="block-label">Campaigns hiding in the book</span>
+                  <p className="muted">
+                    Portfolio-level patterns found across notes, timing, relationships, and data
+                    quality.
+                  </p>
+                </div>
+              </div>
+              <div className="pattern-grid">
+                {bookPatterns.slice(0, 6).map((pattern) => (
+                  <article key={pattern.id} className={`pattern-card ${pattern.kind}`}>
+                    <strong>{pattern.count}</strong>
+                    <div>
+                      <h4>{pattern.label}</h4>
+                      <p>{pattern.description}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="insight-grid">
             <div className="insight">
@@ -516,7 +707,7 @@ export function DeskApp() {
           )}
 
           <div className="plan-list">
-            {filteredCampaignRows.map((p, i) => (
+            {filteredCampaignRows.map((p) => (
               <article key={p.id} className="plan-item">
                 <div className="plan-index">{campaignRows.findIndex((x) => x.id === p.id) + 1}</div>
                 <div className="plan-body">
@@ -531,6 +722,9 @@ export function DeskApp() {
                   </p>
                   {p.whySupport ? <p className="why-support">{p.whySupport}</p> : null}
                   <InsightTagRow tags={p.tags} />
+                  {analyses[p.id] && (
+                    <AnalysisStrip analysis={analyses[p.id]} compact />
+                  )}
                   <p className="meta-line">
                     {p.company ?? "No company"}
                     {" · "}
@@ -580,6 +774,10 @@ export function DeskApp() {
           talk={talkEdits[callCard.id] ?? callCard.talkTrack}
           outcome={outcomes[callCard.id] ?? callCard.outcome}
           reason={reasonHeld[callCard.id] ?? ""}
+          analysis={analyses[callCard.id]}
+          webEvidence={webEvidence[callCard.id]}
+          analysisBusy={analysisStatus === "running"}
+          onRefreshEvidence={() => void refreshPublicEvidence(callCard.id)}
           onTalk={(t) => setTalkEdit(callCard.id, t)}
           onOutcome={(o) => setOutcome(callCard.id, o)}
           onReason={(v) => setReasonHeld(callCard.id, v)}
@@ -649,6 +847,7 @@ export function DeskApp() {
       {step === "review" && prospects.length > 0 && (
         <ReviewBook
           ranked={filteredBook}
+          analyses={analyses}
           allCount={rankedLive.length}
           filterOptions={bookFilterOptions}
           tagFilters={tagFilters}
@@ -781,6 +980,177 @@ function Stat({
   );
 }
 
+function AiResultStat({
+  value,
+  label,
+  tone = "neutral",
+}: {
+  value: number;
+  label: string;
+  tone?: "neutral" | "good" | "warn" | "danger";
+}) {
+  return (
+    <div className={`ai-result-stat ${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+const ACTION_LABELS: Record<NextBestAction, string> = {
+  call_now: "Call now",
+  verify_first: "Verify first",
+  ask_referrer: "Ask referrer",
+  email_first: "Email first",
+  wait: "Wait for timing",
+  merge_records: "Merge records",
+  find_contact: "Find contact",
+  do_not_contact: "Do not contact",
+};
+
+function AnalysisStrip({
+  analysis,
+  compact = false,
+}: {
+  analysis: ProspectAnalysis;
+  compact?: boolean;
+}) {
+  const overdue = analysis.timeline.filter((item) => item.status === "overdue").length;
+  return (
+    <div className={compact ? "analysis-strip compact" : "analysis-strip"}>
+      <span className={`confidence confidence-${confidenceBand(analysis.evidenceConfidence)}`}>
+        {analysis.evidenceConfidence}% evidence
+      </span>
+      <span className={`next-action action-${analysis.nextAction}`}>
+        {ACTION_LABELS[analysis.nextAction]}
+      </span>
+      {overdue > 0 && <span className="analysis-alert">{overdue} overdue trigger</span>}
+      {analysis.contradictions.length > 0 && (
+        <span className="analysis-alert">
+          {analysis.contradictions.length} contradiction
+          {analysis.contradictions.length > 1 ? "s" : ""}
+        </span>
+      )}
+      <span className={analysis.mode === "ai" ? "mode-badge ai" : "mode-badge"}>
+        {analysis.mode === "ai" ? "AI + rules" : "Rules"}
+      </span>
+    </div>
+  );
+}
+
+function confidenceBand(value: number) {
+  if (value >= 75) return "high";
+  if (value >= 50) return "medium";
+  return "low";
+}
+
+function AnalysisDetail({ analysis }: { analysis: ProspectAnalysis }) {
+  return (
+    <div className="analysis-detail">
+      <AnalysisStrip analysis={analysis} />
+      <div className="next-action-panel">
+        <span className="block-label">Recommended next action</span>
+        <strong>{ACTION_LABELS[analysis.nextAction]}</strong>
+        <p>{analysis.nextActionReason}</p>
+      </div>
+
+      {(analysis.facts.length > 0 || analysis.timeline.length > 0) && (
+        <div className="analysis-columns">
+          {analysis.facts.length > 0 && (
+            <div>
+              <span className="block-label">Facts extracted from file</span>
+              <ul className="fact-list">
+                {analysis.facts.slice(0, 5).map((item, index) => (
+                  <li key={`${item.label}-${index}`}>
+                    <strong>{item.label}</strong>
+                    <span>{item.value}</span>
+                    <q>{item.quote}</q>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {analysis.timeline.length > 0 && (
+            <div>
+              <span className="block-label">Relationship timeline</span>
+              <ul className="timeline-list">
+                {analysis.timeline.map((item, index) => (
+                  <li key={`${item.label}-${index}`} className={`timeline-${item.status}`}>
+                    <span className="timeline-dot" />
+                    <div>
+                      <strong>{item.label}</strong>
+                      <span>{item.date ?? "Date unresolved"} · {item.status}</span>
+                      <q>{item.quote}</q>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {analysis.contradictions.length > 0 && (
+        <div className="contradiction-panel">
+          <span className="block-label">Resolve before outreach</span>
+          {analysis.contradictions.map((item, index) => (
+            <div key={`${item.label}-${index}`} className="contradiction-row">
+              <strong>{item.label}</strong>
+              <span>{item.left}</span>
+              <span>↔ {item.right}</span>
+              <q>{item.quote}</q>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {analysis.discoveryQuestions.length > 0 && (
+        <div className="discovery-panel">
+          <span className="block-label">Questions that test the thesis</span>
+          <ol>
+            {analysis.discoveryQuestions.map((question) => (
+              <li key={question}>{question}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WebEvidenceCard({ packet }: { packet: WebEvidencePacket }) {
+  return (
+    <div className="web-evidence-card">
+      <div className="web-evidence-head">
+        <div>
+          <span className="block-label">Public business evidence · review only</span>
+          <strong>{packet.identityStatus === "matched" ? "Identity matched" : packet.identityStatus === "possible" ? "Possible match" : "Identity unresolved"}</strong>
+        </div>
+        <span className={`identity-status ${packet.identityStatus}`}>{packet.identityStatus}</span>
+      </div>
+      <p>{packet.identityReason}</p>
+      {packet.claims.map((claim, index) => (
+        <article key={`${claim.url}-${index}`} className="web-claim">
+          <div>
+            <span className={`claim-status ${claim.status}`}>{claim.status}</span>
+            <strong>{claim.claim}</strong>
+          </div>
+          <q>{claim.excerpt}</q>
+          <a href={claim.url} target="_blank" rel="noreferrer">
+            {claim.publisher} ↗
+          </a>
+        </article>
+      ))}
+      {packet.whyNow && (
+        <p className="web-why-now">
+          <strong>Possible why now:</strong> {packet.whyNow}
+        </p>
+      )}
+      <small>Public evidence never changes hard stops or authorizes outreach automatically.</small>
+    </div>
+  );
+}
+
 function CallMode({
   p,
   index,
@@ -788,6 +1158,10 @@ function CallMode({
   talk,
   outcome,
   reason,
+  analysis,
+  webEvidence,
+  analysisBusy,
+  onRefreshEvidence,
   onTalk,
   onOutcome,
   onReason,
@@ -800,6 +1174,10 @@ function CallMode({
   talk: string;
   outcome: Outcome;
   reason: string;
+  analysis?: ProspectAnalysis;
+  webEvidence?: WebEvidencePacket;
+  analysisBusy: boolean;
+  onRefreshEvidence: () => void;
   onTalk: (t: string) => void;
   onOutcome: (o: Outcome) => void;
   onReason: (v: "yes" | "stale") => void;
@@ -838,6 +1216,26 @@ function CallMode({
         {" · "}
         {p.email ?? "No email"}
       </p>
+
+      {analysis && <AnalysisDetail analysis={analysis} />}
+
+      <div className="evidence-refresh-row">
+        <div>
+          <span className="block-label">Optional public evidence refresh</span>
+          <p>
+            Search only public business sources for role/company confirmation and material changes.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          disabled={analysisBusy || !p.company}
+          onClick={onRefreshEvidence}
+        >
+          {analysisBusy ? "Researching…" : webEvidence ? "Refresh again" : "Check public evidence"}
+        </button>
+      </div>
+      {webEvidence && <WebEvidenceCard packet={webEvidence} />}
 
       {blocked ? (
         <div className="blocked-call">
@@ -911,6 +1309,7 @@ function CallMode({
 
 function ReviewBook({
   ranked,
+  analyses,
   allCount,
   filterOptions,
   tagFilters,
@@ -927,6 +1326,7 @@ function ReviewBook({
   onBack,
 }: {
   ranked: RankedProspect[];
+  analyses: Record<string, ProspectAnalysis>;
   allCount: number;
   filterOptions: InsightTagId[];
   tagFilters: InsightTagId[];
@@ -1006,6 +1406,9 @@ function ReviewBook({
                       .map((t) => t.label)
                       .join(" · ") || (p.company ?? "—")}
                   </span>
+                  {analyses[p.id] && (
+                    <span className="meta">{analyses[p.id].evidenceConfidence}% evidence</span>
+                  )}
                 </button>
               </li>
             ))}
@@ -1021,6 +1424,7 @@ function ReviewBook({
               </p>
               {active.whySupport ? <p className="why-support">{active.whySupport}</p> : null}
               <InsightTagRow tags={active.tags} />
+              {analyses[active.id] && <AnalysisDetail analysis={analyses[active.id]} />}
               <p className="meta-line">{silenceLabel(active.silenceBucket)}</p>
               {active.duplicateOf.map((id) => (
                 <button

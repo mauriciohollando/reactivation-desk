@@ -5,10 +5,17 @@ import { persist } from "zustand/middleware";
 import { buildDemoAdvisorBook } from "./demoBook";
 import type { InsightTagId } from "./insightTags";
 import {
+  analyzeBookLocally,
+  balancedCallable,
+} from "./analysisEngine";
+import type {
+  ProspectAnalysis,
+  WebEvidencePacket,
+} from "./analysisTypes";
+import {
   buildImportSummary,
   mergeProspects,
   rankProspects,
-  topCallable,
 } from "./rank";
 import type {
   Campaign,
@@ -33,6 +40,11 @@ type State = {
   callIndex: number;
   weekBudget: WeekBudget;
   preferWarm: boolean;
+  analyses: Record<string, ProspectAnalysis>;
+  webEvidence: Record<string, WebEvidencePacket>;
+  analysisStatus: "ready" | "running" | "complete" | "error";
+  analysisError: string | null;
+  aiAnalyzedCount: number;
   /** Analysis tags used to focus the week list (OR match). */
   tagFilters: InsightTagId[];
   loadDemoBook: () => void;
@@ -40,6 +52,8 @@ type State = {
   toggleSelect: (id: string) => void;
   toggleTagFilter: (id: InsightTagId) => void;
   clearTagFilters: () => void;
+  deepenTopProspects: (count?: number) => Promise<void>;
+  refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (n?: WeekBudget) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
@@ -55,6 +69,7 @@ type State = {
 };
 
 function applyBook(prospects: Prospect[], sourceLabel: string) {
+  const ranked = rankProspects(prospects, {});
   return {
     prospects,
     sourceLabel,
@@ -65,6 +80,11 @@ function applyBook(prospects: Prospect[], sourceLabel: string) {
     talkEdits: {} as Record<string, string>,
     reasonHeld: {} as Record<string, "yes" | "stale" | "">,
     tagFilters: [] as InsightTagId[],
+    analyses: analyzeBookLocally(ranked),
+    webEvidence: {} as Record<string, WebEvidencePacket>,
+    analysisStatus: "ready" as const,
+    analysisError: null as string | null,
+    aiAnalyzedCount: 0,
     step: "diagnose" as WizardStep,
     callIndex: 0,
   };
@@ -86,6 +106,11 @@ export const useDesk = create<State>()(
       weekBudget: 10,
       preferWarm: true,
       tagFilters: [],
+      analyses: {},
+      webEvidence: {},
+      analysisStatus: "ready",
+      analysisError: null,
+      aiAnalyzedCount: 0,
       loadDemoBook: () => {
         set({
           ...applyBook(
@@ -112,6 +137,149 @@ export const useDesk = create<State>()(
         });
       },
       clearTagFilters: () => set({ tagFilters: [] }),
+      deepenTopProspects: async (count = 25) => {
+        const ranked = get()
+          .ranked()
+          .filter(
+            (p) =>
+              p.silenceBucket !== "do_not_cold_call" &&
+              Boolean(p.phone || p.email),
+          )
+          .slice(0, count);
+        if (!ranked.length) return;
+        set({ analysisStatus: "running", analysisError: null });
+
+        const batches: RankedProspect[][] = [];
+        for (let i = 0; i < ranked.length; i += 5) {
+          batches.push(ranked.slice(i, i + 5));
+        }
+
+        try {
+          const results = await Promise.allSettled(
+            batches.map(async (batch) => {
+              const response = await fetch("/api/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  prospects: batch.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    company: p.company,
+                    title: p.title,
+                    segment: p.segment,
+                    source: p.source,
+                    lastTouch: p.lastTouch,
+                    notes: p.notes,
+                    estimatedValue: p.estimatedValue,
+                    phonePresent: Boolean(p.phone),
+                    emailPresent: Boolean(p.email),
+                  })),
+                }),
+              });
+              if (!response.ok) {
+                const body = (await response.json().catch(() => ({}))) as {
+                  error?: string;
+                };
+                throw new Error(body.error ?? `Analysis failed (${response.status})`);
+              }
+              return (await response.json()) as {
+                analyses: Omit<ProspectAnalysis, "relationships">[];
+              };
+            }),
+          );
+
+          const responses = results
+            .filter(
+              (
+                result,
+              ): result is PromiseFulfilledResult<{
+                analyses: Omit<ProspectAnalysis, "relationships">[];
+              }> => result.status === "fulfilled",
+            )
+            .map((result) => result.value);
+          const failures = results.filter((result) => result.status === "rejected");
+          if (!responses.length) {
+            const first = failures[0] as PromiseRejectedResult | undefined;
+            throw first?.reason instanceof Error
+              ? first.reason
+              : new Error("All AI analysis batches failed.");
+          }
+
+          const next = { ...get().analyses };
+          for (const response of responses) {
+            for (const analysis of response.analyses) {
+              const local = next[analysis.prospectId];
+              next[analysis.prospectId] = {
+                ...analysis,
+                relationships: local?.relationships ?? [],
+              };
+            }
+          }
+          set({
+            analyses: next,
+            analysisStatus: "complete",
+            aiAnalyzedCount: Object.values(next).filter((a) => a.mode === "ai").length,
+            analysisError: failures.length
+              ? `${failures.length} analysis batch${failures.length > 1 ? "es" : ""} failed; successful results were kept.`
+              : null,
+          });
+        } catch (error) {
+          set({
+            analysisStatus: "error",
+            analysisError:
+              error instanceof Error
+                ? error.message
+                : "AI analysis failed. Local analysis remains available.",
+          });
+        }
+      },
+      refreshPublicEvidence: async (id) => {
+        const prospect = get().prospects.find((p) => p.id === id);
+        if (!prospect?.company) {
+          set({
+            analysisError:
+              "A company name is required before public evidence can be matched safely.",
+          });
+          return;
+        }
+        set({ analysisStatus: "running", analysisError: null });
+        try {
+          const response = await fetch("/api/evidence-refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prospect: {
+                id: prospect.id,
+                name: prospect.name,
+                company: prospect.company,
+                title: prospect.title,
+                lastTouch: prospect.lastTouch,
+                notes: prospect.notes,
+                emailDomain: prospect.email?.split("@")[1],
+              },
+            }),
+          });
+          const body = (await response.json()) as {
+            packet?: WebEvidencePacket;
+            error?: string;
+          };
+          if (!response.ok || !body.packet) {
+            throw new Error(body.error ?? `Evidence refresh failed (${response.status})`);
+          }
+          set({
+            webEvidence: { ...get().webEvidence, [id]: body.packet },
+            analysisStatus: "complete",
+          });
+        } catch (error) {
+          set({
+            analysisStatus: "error",
+            analysisError:
+              error instanceof Error
+                ? error.message
+                : "Public evidence refresh failed.",
+          });
+        }
+      },
       buildWeekPlan: (n) => {
         const budget = n ?? get().weekBudget;
         let ranked = get().ranked();
@@ -134,7 +302,7 @@ export const useDesk = create<State>()(
         } else {
           ranked = byWarmth(ranked);
         }
-        const top = topCallable(ranked, budget).map((p) => p.id);
+        const top = balancedCallable(ranked, get().analyses, budget).map((p) => p.id);
         set({
           weekBudget: budget,
           selectedIds: top,
@@ -172,6 +340,7 @@ export const useDesk = create<State>()(
           prospects: next,
           selectedIds: get().selectedIds.filter((id) => id !== dropId),
           importSummary: buildImportSummary(next),
+          analyses: analyzeBookLocally(rankProspects(next, get().outcomes)),
           campaign: get().campaign
             ? {
                 ...get().campaign!,
@@ -196,8 +365,21 @@ export const useDesk = create<State>()(
           weekBudget: 10,
           preferWarm: true,
           tagFilters: [],
+          analyses: {},
+          webEvidence: {},
+          analysisStatus: "ready",
+          analysisError: null,
+          aiAnalyzedCount: 0,
         }),
     }),
-    { name: "reactivation-desk-v4" },
+    {
+      name: "reactivation-desk-v5",
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...(persistedState as Partial<State>),
+        analysisStatus: "ready",
+        analysisError: null,
+      }),
+    },
   ),
 );

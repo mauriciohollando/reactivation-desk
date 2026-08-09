@@ -12,16 +12,25 @@ Meeting import demo: generate a local CRM export with `npm run generate:meeting-
 ## Guided funnel
 
 1. **Import** — sample book or CSV  
-2. **Diagnosis** — callable / careful / off-limits (trust audit)  
-3. **This week** — capacity-aware list + excluded drawer  
-4. **Call** — one card, hard stops, outcome logging  
-5. **Wrap** — export durable week report  
+2. **Diagnosis** — callable / careful / off-limits + portfolio patterns  
+3. **Deep analysis (opt-in)** — structured facts, timeline, contradictions, confidence, next action  
+4. **This week** — diversified capacity-aware list + excluded drawer  
+5. **Call** — one card, discovery prep, optional cited public evidence, hard stops  
+6. **Wrap** — export durable week report  
 
 Full-book rankings are optional under **Full book**.
 
 ## Differentiator
 
-Silence-aware · cites the file · no CRM hostage · no auto-send · human-approved outreach
+Rules own safety · AI must cite the file · public evidence is review-only · no CRM hostage · no auto-send
+
+## AI architecture
+
+- Deterministic analysis runs locally for every row.
+- Opt-in deep analysis sends only the top 25 rows directly to OpenAI.
+- Extracted facts, timelines, contradictions, and next-action evidence must match an exact source quote.
+- Optional web refresh searches public business evidence for one contact at a time; it never changes hard stops automatically.
+- Set `OPENAI_ANALYSIS_MODEL` / `OPENAI_WEB_MODEL` to override the default model.
 
 ## Develop
 

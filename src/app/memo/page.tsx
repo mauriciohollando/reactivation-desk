@@ -29,8 +29,10 @@ export default function MemoPage() {
         <strong>Reactivation Desk</strong> for solo / small independent advisors
         (Advisor A-like): upload or load a messy prior-prospect book, get a ranked
         who/why/what-to-say queue with opportunity vs reachability scores, silence
-        buckets, select this week&apos;s list, work it in call mode, log outcomes,
-        export a durable campaign CSV. No continuous CRM/email access. No auto-send.
+        buckets, cited AI extraction, timeline/contradiction review, and a balanced
+        weekly list; work it in call mode, log outcomes, export a durable campaign
+        CSV. Optional public-business evidence refresh is review-only. No continuous
+        CRM/email access. No auto-send.
       </p>
 
       <h2>2. Strongest alternatives rejected</h2>
@@ -45,8 +47,9 @@ export default function MemoPage() {
           needs integrations.
         </li>
         <li>
-          <strong>Public/event relationship alerts (G):</strong> huge upside, paused
-          for privacy; enterprise sales cycle; advisor cannot buy alone.
+          <strong>Continuous public/event relationship alerts (G):</strong> huge
+          upside, but privacy-heavy and enterprise-led. We kept only an on-demand,
+          cited business-evidence check for shortlisted contacts.
         </li>
         <li>
           <strong>Book transition / succession OS (E/I):</strong> high ARPU, rare,
@@ -66,8 +69,9 @@ export default function MemoPage() {
         <strong>Against:</strong> A has not tested the colder remaining 100; J shows
         long-silence outreach can trigger opt-outs; willingness to pay for SaaS vs
         one-time cleanup is mixed.{" "}
-        <strong>Tradeoff accepted:</strong> optimize for an independent buyer and
-        export-based workflow now; defer firm-wide intelligence and content platforms.
+        <strong>Tradeoff accepted:</strong> rules own hard stops; AI interprets only
+        shortlisted rows with exact-quote validation. Optimize for an independent
+        buyer and export-based workflow; defer firm-wide intelligence and content platforms.
       </p>
 
       <h2>4. Who pays, substitutes, price, why now</h2>
@@ -104,7 +108,11 @@ export default function MemoPage() {
       <h2>Assumptions disclosed</h2>
       <ul>
         <li>Default demo book is synthetic and labeled as such.</li>
-        <li>Ranking is deterministic evidence scoring (no live LLM required).</li>
+        <li>
+          Ranking and hard stops are deterministic; opt-in LLM analysis is additive,
+          exact-quote validated, and has a local fallback.
+        </li>
+        <li>Public evidence is cited, review-only, and never authorizes outreach.</li>
         <li>Persistence is browser localStorage for the case artifact.</li>
       </ul>
     </main>
