@@ -1,26 +1,25 @@
 # Reactivation Desk
 
-Rowan Round 3 case prototype: **immediately monetizable** reactivation workbench for independent financial advisors.
+Rowan Round 3 prototype: export-native reactivation for independent advisors.
 
 **Live:** https://reactivation-desk.vercel.app  
 **Repo:** https://github.com/mauriciohollando/reactivation-desk  
-**Memo:** https://reactivation-desk.vercel.app/memo
+**Memo:** https://reactivation-desk.vercel.app/memo  
+**Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv
 
-## Workflow
+## Guided funnel
 
-1. **Start demo (2 min)** or upload CSV  
-2. Review import summary + ranked queue (opportunity × reachability)  
-3. Build this week’s callable list  
-4. **Call mode** (one card, log outcomes)  
-5. Export durable CSV  
+1. **Import** — panel demo, sample book, or CSV  
+2. **Diagnosis** — callable / careful / off-limits (trust audit)  
+3. **This week** — capacity-aware list + excluded drawer  
+4. **Call** — one card, hard stops, outcome logging  
+5. **Wrap** — export durable week report  
 
-## Product judgment
+Full-book rankings are optional under **Full book**.
 
-- No continuous CRM / email access  
-- No auto-send  
-- Silence buckets: safe reopen / handle with care / do not cold-call  
-- Scores cite row evidence or ask for review  
-- Demo eval precision@10 vs recency / random  
+## Differentiator
+
+Silence-aware · cites the file · no CRM hostage · no auto-send · human-approved outreach
 
 ## Develop
 
@@ -28,7 +27,3 @@ Rowan Round 3 case prototype: **immediately monetizable** reactivation workbench
 npm install
 npm run dev
 ```
-
-## Stack
-
-Next.js · Zustand · Papa Parse · Vercel

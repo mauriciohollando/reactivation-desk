@@ -4,6 +4,8 @@ export type Outcome =
   | "meeting"
   | "sale"
   | "skip"
+  | "not_now"
+  | "wrong_number"
   | "do_not_contact";
 
 export type SilenceBucket = "safe_reopen" | "handle_with_care" | "do_not_cold_call";
@@ -59,10 +61,22 @@ export type ImportSummary = {
   thinFiles: number;
   duplicateGroups: number;
   longSilence: number;
+  callableThisWeek: number;
+  handleWithCare: number;
+  doNotColdCall: number;
+  evidenceCoveragePct: number;
   parseWarnings: string[];
 };
 
-export type WizardStep = "import" | "rank" | "campaign" | "call" | "done";
+export type WizardStep =
+  | "import"
+  | "diagnose"
+  | "plan"
+  | "call"
+  | "wrap"
+  | "review";
+
+export type WeekBudget = 5 | 10 | 20;
 
 export type FieldKey =
   | "name"

@@ -1,0 +1,428 @@
+import type { Prospect } from "./types";
+
+function isoDaysAgo(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function row(
+  partial: Omit<Prospect, "raw" | "id"> & { id: string },
+): Prospect {
+  const p: Prospect = {
+    ...partial,
+    raw: {},
+  };
+  p.raw = {
+    Name: p.name,
+    Email: p.email ?? "",
+    Phone: p.phone ?? "",
+    Company: p.company ?? "",
+    Title: p.title ?? "",
+    Segment: p.segment ?? "",
+    Source: p.source ?? "",
+    "Last Touch": p.lastTouch ?? "",
+    Notes: p.notes ?? "",
+    Value: p.estimatedValue ?? "",
+    LinkedIn: p.linkedin ?? "",
+  };
+  return p;
+}
+
+/**
+ * Panel-tailored book (~48). Clear winners, careful reopen, do-not-cold-call,
+ * duplicates, and thin files so diagnosis and exclusions are demoable.
+ */
+export function buildDemoAdvisorBook(): Prospect[] {
+  const winners: Prospect[] = [
+    row({
+      id: "demo-01",
+      name: "Elena Vargas",
+      email: "elena@northline-mfg.com",
+      phone: "(512) 555-0142",
+      company: "Northline Manufacturing",
+      title: "Owner",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(38),
+      notes: "Met at chamber breakfast. Interested in buy-sell funding for her brother as co-owner.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-02",
+      name: "Marcus Chen",
+      email: "mchen@cedarholdings.com",
+      phone: "(416) 555-0188",
+      company: "Cedar Ridge Holdings",
+      title: "CEO",
+      segment: "Business owner",
+      source: "referral",
+      lastTouch: isoDaysAgo(61),
+      notes: "Referred by client Martinez — high priority if real. Asked about key person coverage.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-03",
+      name: "Priya Nair",
+      email: "priya.nair@summitdental.com",
+      phone: "(602) 555-0117",
+      company: "Summit Dental Group",
+      title: "Managing Partner",
+      segment: "Professional",
+      source: "seminar attendee",
+      lastTouch: isoDaysAgo(22),
+      notes: "Policy anniversary next month per spreadsheet. Prefers morning calls.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-04",
+      name: "James Okonkwo",
+      email: "james@harborfreightlogistics.com",
+      phone: "(713) 555-0194",
+      company: "Harbor Freight Logistics",
+      title: "Founder",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(74),
+      notes: "Said call back after acquisition closes. Selling minority stake conversation unfinished.",
+      estimatedValue: "High — liquidity event",
+    }),
+    row({
+      id: "demo-05",
+      name: "Sarah Blake",
+      email: "sblake@familymail.com",
+      phone: "(206) 555-0133",
+      company: "Blake Family Office",
+      title: "Principal",
+      segment: "HNW family",
+      source: "prior inbound",
+      lastTouch: isoDaysAgo(45),
+      notes: "Wife handles day-to-day. Warm to planning conversation after estate attorney meeting.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-06",
+      name: "Daniel Ruiz",
+      email: "druiz@blueoak.construction",
+      phone: "(303) 555-0160",
+      company: "Blue Oak Construction",
+      title: "President",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(90),
+      notes: "Key person discussion started then went quiet. Still has phone and email.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-07",
+      name: "Amanda Foster",
+      email: "amanda@pinnaclevet.com",
+      phone: "(919) 555-0121",
+      company: "Pinnacle Vet Partners",
+      title: "Owner",
+      segment: "Business owner",
+      source: "email",
+      lastTouch: isoDaysAgo(15),
+      notes: "Recent inbound about group disability. Easy reopen.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-08",
+      name: "Robert Hale",
+      email: "rhale@lakesideortho.com",
+      phone: "(614) 555-0177",
+      company: "Lakeside Orthopedics",
+      title: "CFO",
+      segment: "Professional",
+      source: "CRM",
+      lastTouch: isoDaysAgo(110),
+      notes: "Buy-sell funding for partner retirement in 18 months.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-09",
+      name: "Nina Park",
+      email: "nina.park@gmail.com",
+      phone: "(628) 555-0108",
+      company: "Park & Associates CPA",
+      title: "Partner",
+      segment: "Referral",
+      source: "referral",
+      lastTouch: isoDaysAgo(33),
+      notes: "Referred three clients historically. Due for courtesy check-in.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-10",
+      name: "Tom Bradley",
+      email: "tom@ironwoodcp.com",
+      phone: "(312) 555-0155",
+      company: "Ironwood Capital Partners",
+      title: "Managing Partner",
+      segment: "HNW family",
+      source: "CRM",
+      lastTouch: isoDaysAgo(55),
+      notes: "Interested in executive benefits for portfolio CEOs.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-11",
+      name: "Grace Kim",
+      email: "grace@brightpath.clinic",
+      phone: "(404) 555-0190",
+      company: "BrightPath Clinics",
+      title: "Owner",
+      segment: "Business owner",
+      source: "seminar attendee",
+      lastTouch: isoDaysAgo(48),
+      notes: "Multi-location expansion. Asked about coverage gaps.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-12",
+      name: "Chris Patel",
+      email: "cpatel@atlashvac.com",
+      phone: "(480) 555-0144",
+      company: "Atlas HVAC Services",
+      title: "Owner",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(70),
+      notes: "Cash flow tight this year but still engaged. Review in Q2.",
+      estimatedValue: "Medium",
+    }),
+  ];
+
+  const careful: Prospect[] = [
+    row({
+      id: "demo-13",
+      name: "Helen Morris",
+      email: "helen.morris@outlook.com",
+      phone: "(215) 555-0129",
+      company: "Morris Family Trust",
+      title: "Trustee",
+      segment: "HNW family",
+      source: "CRM",
+      lastTouch: isoDaysAgo(420),
+      notes: "Long silence after prior advisor change. Soft reopen only.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-14",
+      name: "Kevin Orth",
+      email: "kevin@prairiegrain.coop",
+      phone: "(701) 555-0182",
+      company: "Prairie Grain Co-op",
+      title: "Board Chair",
+      segment: "Business owner",
+      source: "old campaign",
+      lastTouch: isoDaysAgo(500),
+      notes: "Do not email — phone only. Was angry about prior carrier. Soft touch.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-15",
+      name: "Laura Simmons",
+      email: "laura@oakstonerealty.com",
+      phone: "(503) 555-0111",
+      company: "Oak & Stone Realty",
+      title: "Broker",
+      segment: "Professional",
+      source: "CRM",
+      lastTouch: isoDaysAgo(380),
+      notes: "Kids in college. Timing was bad last year.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-16",
+      name: "Omar Haddad",
+      email: "omar@vertexpack.com",
+      phone: "(973) 555-0166",
+      company: "Vertex Packaging",
+      title: "CEO",
+      segment: "Business owner",
+      source: "LinkedIn",
+      lastTouch: isoDaysAgo(610),
+      notes: "Useful file but long gap. Reopen carefully.",
+      estimatedValue: "High",
+    }),
+  ];
+
+  const offLimits: Prospect[] = [
+    row({
+      id: "demo-17",
+      name: "Frank Delgado",
+      email: "frankd@gmail.com",
+      phone: "(786) 555-0138",
+      company: "Delgado Imports",
+      title: "Owner",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(1100),
+      notes: "No contact in years. High opt-out risk if cold-called.",
+      estimatedValue: "Medium",
+    }),
+    row({
+      id: "demo-18",
+      name: "Betty Quinn",
+      email: "betty.quinn@yahoo.com",
+      phone: "(860) 555-0171",
+      company: "",
+      title: "",
+      segment: "Prior inbound",
+      source: "spreadsheet",
+      lastTouch: isoDaysAgo(1400),
+      notes: "Long silence. Previously asked not to be bothered unless something material.",
+      estimatedValue: "",
+    }),
+    row({
+      id: "demo-19",
+      name: "Stanley Wu",
+      email: "stan.wu@gmail.com",
+      phone: "(408) 555-0104",
+      company: "Wu Consulting",
+      title: "Principal",
+      segment: "Professional",
+      source: "CRM",
+      lastTouch: isoDaysAgo(980),
+      notes: "File cold. Do not force outreach.",
+      estimatedValue: "Low",
+    }),
+  ];
+
+  const thin: Prospect[] = [
+    row({
+      id: "demo-20",
+      name: "Alex Rivera",
+      linkedin: "linkedin.com/in/alexrivera88",
+      source: "LinkedIn",
+      lastTouch: isoDaysAgo(200),
+      notes: "Very thin file. Name from LinkedIn only.",
+      segment: "",
+    }),
+    row({
+      id: "demo-21",
+      name: "Jamie Cole",
+      linkedin: "linkedin.com/in/jamiecole",
+      source: "LinkedIn",
+      lastTouch: isoDaysAgo(90),
+      notes: "No phone or email captured.",
+    }),
+    row({
+      id: "demo-22",
+      name: "Sam Ortiz",
+      email: "sam.ortiz@gmail.com",
+      source: "spreadsheet",
+      lastTouch: isoDaysAgo(150),
+      notes: "Email only. Company unknown.",
+    }),
+  ];
+
+  const dupes: Prospect[] = [
+    row({
+      id: "demo-23",
+      name: "Maria Garcia",
+      email: "maria.garcia@metrofleet.com",
+      phone: "(214) 555-0199",
+      company: "Metro Fleet Services",
+      title: "Owner",
+      segment: "Business owner",
+      source: "CRM",
+      lastTouch: isoDaysAgo(40),
+      notes: "Strong reactivation candidate. Buy-sell interest.",
+      estimatedValue: "High",
+    }),
+    row({
+      id: "demo-24",
+      name: "Maria Garcia",
+      email: "mgarcia@gmail.com",
+      phone: "(214) 555-0112",
+      company: "Metro Fleet",
+      title: "Owner",
+      segment: "Business owner",
+      source: "spreadsheet",
+      lastTouch: isoDaysAgo(200),
+      notes: "Possible duplicate of CRM Maria Garcia. Wrong number on last attempt?",
+      estimatedValue: "High",
+    }),
+  ];
+
+  const filler: Prospect[] = Array.from({ length: 22 }, (_, i) => {
+    const n = i + 25;
+    const warm = i % 3 === 0;
+    return row({
+      id: `demo-${String(n).padStart(2, "0")}`,
+      name: [
+        "Paul Nguyen",
+        "Rita Alvarez",
+        "Greg Stone",
+        "Monica Lee",
+        "Derek Fox",
+        "Hannah Brooks",
+        "Ivan Petrov",
+        "Julie Cho",
+        "Carl Mendez",
+        "Nadia Ali",
+        "Owen Clark",
+        "Paula Reed",
+        "Quinn Murphy",
+        "Rosa Diaz",
+        "Steve Young",
+        "Tina Brooks",
+        "Uma Sharma",
+        "Victor Lopez",
+        "Wendy Hall",
+        "Xavier Cole",
+        "Yvonne Park",
+        "Zack Miller",
+      ][i]!,
+      email: warm ? `contact${n}@example.com` : i % 4 === 0 ? undefined : `p${n}@mail.com`,
+      phone: i % 5 === 0 ? undefined : `(555) 010-${1000 + n}`,
+      company: i % 6 === 0 ? undefined : `Local Business ${n}`,
+      title: i % 2 === 0 ? "Owner" : "Manager",
+      segment: warm ? "Business owner" : "Professional",
+      source: "CRM",
+      lastTouch: isoDaysAgo(warm ? 60 + i * 3 : 200 + i * 20),
+      notes: warm
+        ? "General planning follow-up. Decent file."
+        : "Light notes only.",
+      estimatedValue: warm ? "Medium" : "Low",
+    });
+  });
+
+  return [...winners, ...careful, ...offLimits, ...thin, ...dupes, ...filler];
+}
+
+export function demoBookToCsv(prospects: Prospect[]): string {
+  const headers = [
+    "Name",
+    "Email",
+    "Phone",
+    "Company",
+    "Title",
+    "Segment",
+    "Source",
+    "Last Touch",
+    "Notes",
+    "Value",
+    "LinkedIn",
+  ];
+  const lines = [headers.join(",")];
+  for (const p of prospects) {
+    const vals = [
+      p.name,
+      p.email ?? "",
+      p.phone ?? "",
+      p.company ?? "",
+      p.title ?? "",
+      p.segment ?? "",
+      p.source ?? "",
+      p.lastTouch ?? "",
+      p.notes ?? "",
+      p.estimatedValue ?? "",
+      p.linkedin ?? "",
+    ].map((v) => `"${String(v).replace(/"/g, '""')}"`);
+    lines.push(vals.join(","));
+  }
+  return lines.join("\n");
+}

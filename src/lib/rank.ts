@@ -373,15 +373,25 @@ export function buildImportSummary(prospects: Prospect[]): ImportSummary {
   ).length;
   const thinFiles = ranked.filter((p) => !p.company && !p.notes).length;
   const longSilence = ranked.filter((p) => p.silenceBucket !== "safe_reopen").length;
+  const callableThisWeek = ranked.filter(
+    (p) =>
+      p.silenceBucket !== "do_not_cold_call" &&
+      (hasUsablePhone(p.phone) || Boolean(p.email)),
+  ).length;
+  const handleWithCare = ranked.filter((p) => p.silenceBucket === "handle_with_care").length;
+  const doNotColdCall = ranked.filter((p) => p.silenceBucket === "do_not_cold_call").length;
+  const withEvidence = ranked.filter((p) =>
+    p.reasons.some((r) => r.weight === "high" || r.weight === "medium"),
+  ).length;
   const dupNames = new Set(
     ranked.filter((p) => p.duplicateOf.length > 0).map((p) => p.name.toLowerCase()),
   );
   const warnings: string[] = [];
-  if (!prospects.some((p) => p.name && p.name !== "Unknown")) {
+  if (!prospects.some((p) => p.name && !p.name.startsWith("Unknown"))) {
     warnings.push("No clear Name column detected.");
   }
-  if (missingContact === prospects.length) {
-    warnings.push("No usable phone or email on any row. Campaign calling will be blocked.");
+  if (missingContact === prospects.length && prospects.length > 0) {
+    warnings.push("No usable phone or email on any row. Calling will be blocked.");
   }
   return {
     total: prospects.length,
@@ -389,6 +399,12 @@ export function buildImportSummary(prospects: Prospect[]): ImportSummary {
     thinFiles,
     duplicateGroups: dupNames.size,
     longSilence,
+    callableThisWeek,
+    handleWithCare,
+    doNotColdCall,
+    evidenceCoveragePct: prospects.length
+      ? Math.round((withEvidence / prospects.length) * 100)
+      : 0,
     parseWarnings: warnings,
   };
 }
@@ -412,9 +428,17 @@ export function mergeProspects(primary: Prospect, secondary: Prospect): Prospect
   };
 }
 
+export function excludedFromPlan(ranked: RankedProspect[]) {
+  return ranked.filter(
+    (p) =>
+      p.silenceBucket === "do_not_cold_call" ||
+      (!hasUsablePhone(p.phone) && !p.email),
+  );
+}
+
 export function topCallable(ranked: RankedProspect[], n: number) {
   return ranked
     .filter((p) => p.silenceBucket !== "do_not_cold_call")
-    .filter((p) => hasUsablePhone(p.phone) || p.email)
+    .filter((p) => hasUsablePhone(p.phone) || Boolean(p.email))
     .slice(0, n);
 }

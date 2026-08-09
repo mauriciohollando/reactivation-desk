@@ -2,19 +2,20 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { buildDemoAdvisorBook } from "./demoBook";
 import {
   buildImportSummary,
   mergeProspects,
   rankProspects,
   topCallable,
 } from "./rank";
-import { buildSyntheticBook } from "./syntheticBook";
 import type {
   Campaign,
   ImportSummary,
   Outcome,
   Prospect,
   RankedProspect,
+  WeekBudget,
   WizardStep,
 } from "./types";
 
@@ -22,27 +23,47 @@ type State = {
   prospects: Prospect[];
   outcomes: Record<string, Outcome>;
   talkEdits: Record<string, string>;
+  reasonHeld: Record<string, "yes" | "stale" | "">;
   campaign: Campaign | null;
   selectedIds: string[];
   sourceLabel: string;
   importSummary: ImportSummary | null;
   step: WizardStep;
   callIndex: number;
-  loadSynthetic: () => void;
-  runDemoAutopilot: () => void;
+  weekBudget: WeekBudget;
+  preferWarm: boolean;
+  loadDemoBook: () => void;
+  runPanelDemo: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
   toggleSelect: (id: string) => void;
-  selectTopCallable: (n: number) => void;
+  buildWeekPlan: (n?: WeekBudget) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
   setTalkEdit: (id: string, text: string) => void;
-  createCampaignFromSelection: () => void;
+  setReasonHeld: (id: string, v: "yes" | "stale") => void;
   setStep: (step: WizardStep) => void;
   setCallIndex: (i: number) => void;
+  setWeekBudget: (n: WeekBudget) => void;
+  setPreferWarm: (v: boolean) => void;
   mergeDuplicatePair: (keepId: string, dropId: string) => void;
   ranked: () => RankedProspect[];
   resetAll: () => void;
 };
+
+function applyBook(prospects: Prospect[], sourceLabel: string) {
+  return {
+    prospects,
+    sourceLabel,
+    importSummary: buildImportSummary(prospects),
+    selectedIds: [] as string[],
+    campaign: null,
+    outcomes: {} as Record<string, Outcome>,
+    talkEdits: {} as Record<string, string>,
+    reasonHeld: {} as Record<string, "yes" | "stale" | "">,
+    step: "diagnose" as WizardStep,
+    callIndex: 0,
+  };
+}
 
 export const useDesk = create<State>()(
   persist(
@@ -50,59 +71,44 @@ export const useDesk = create<State>()(
       prospects: [],
       outcomes: {},
       talkEdits: {},
+      reasonHeld: {},
       campaign: null,
       selectedIds: [],
       sourceLabel: "none",
       importSummary: null,
       step: "import",
       callIndex: 0,
-      loadSynthetic: () => {
-        const prospects = buildSyntheticBook(120);
+      weekBudget: 10,
+      preferWarm: true,
+      loadDemoBook: () => {
         set({
-          prospects,
-          sourceLabel: "Disclosed synthetic book (120), Advisor A-like messy export",
-          importSummary: buildImportSummary(prospects),
-          selectedIds: [],
-          campaign: null,
-          outcomes: {},
-          talkEdits: {},
-          step: "rank",
-          callIndex: 0,
+          ...applyBook(
+            buildDemoAdvisorBook(),
+            "Panel sample book (disclosed synthetic, Advisor A-like export)",
+          ),
+          weekBudget: 10,
         });
       },
-      runDemoAutopilot: () => {
-        const prospects = buildSyntheticBook(120);
+      runPanelDemo: () => {
+        const prospects = buildDemoAdvisorBook();
         const ranked = rankProspects(prospects, {});
         const top = topCallable(ranked, 10).map((p) => p.id);
         set({
-          prospects,
-          sourceLabel: "Demo autopilot: synthetic book, top 10 callable",
-          importSummary: buildImportSummary(prospects),
+          ...applyBook(prospects, "Panel demo: sample book + this week’s 10 ready"),
           selectedIds: top,
-          outcomes: {},
-          talkEdits: {},
-          callIndex: 0,
+          weekBudget: 10,
           campaign: {
             id: `camp-${Date.now()}`,
             name: `Week of ${new Date().toISOString().slice(0, 10)}`,
             createdAt: new Date().toISOString(),
             prospectIds: top,
           },
-          step: "call",
+          step: "plan",
+          callIndex: 0,
         });
       },
       loadProspects: (prospects, sourceLabel) =>
-        set({
-          prospects,
-          sourceLabel,
-          importSummary: buildImportSummary(prospects),
-          selectedIds: [],
-          campaign: null,
-          outcomes: {},
-          talkEdits: {},
-          step: "rank",
-          callIndex: 0,
-        }),
+        set({ ...applyBook(prospects, sourceLabel) }),
       toggleSelect: (id) => {
         const cur = get().selectedIds;
         set({
@@ -111,45 +117,58 @@ export const useDesk = create<State>()(
             : [...cur, id],
         });
       },
-      selectTopCallable: (n) => {
-        const top = topCallable(get().ranked(), n).map((p) => p.id);
-        set({ selectedIds: top });
+      buildWeekPlan: (n) => {
+        const budget = n ?? get().weekBudget;
+        let ranked = get().ranked();
+        if (get().preferWarm) {
+          const warm = ranked.filter((p) => p.silenceBucket === "safe_reopen");
+          const careful = ranked.filter((p) => p.silenceBucket === "handle_with_care");
+          ranked = [...warm, ...careful, ...ranked.filter((p) => p.silenceBucket === "do_not_cold_call")];
+        }
+        const top = topCallable(ranked, budget).map((p) => p.id);
+        set({
+          weekBudget: budget,
+          selectedIds: top,
+          campaign: {
+            id: `camp-${Date.now()}`,
+            name: `Week of ${new Date().toISOString().slice(0, 10)}`,
+            createdAt: new Date().toISOString(),
+            prospectIds: top,
+          },
+          step: "plan",
+          callIndex: 0,
+        });
       },
       clearSelection: () => set({ selectedIds: [] }),
       setOutcome: (id, outcome) =>
         set({ outcomes: { ...get().outcomes, [id]: outcome } }),
       setTalkEdit: (id, text) =>
         set({ talkEdits: { ...get().talkEdits, [id]: text } }),
-      createCampaignFromSelection: () => {
-        const ids = get().selectedIds;
-        if (!ids.length) return;
-        set({
-          campaign: {
-            id: `camp-${Date.now()}`,
-            name: `Week of ${new Date().toISOString().slice(0, 10)}`,
-            createdAt: new Date().toISOString(),
-            prospectIds: ids,
-          },
-          step: "call",
-          callIndex: 0,
-        });
-      },
+      setReasonHeld: (id, v) =>
+        set({ reasonHeld: { ...get().reasonHeld, [id]: v } }),
       setStep: (step) => set({ step }),
       setCallIndex: (callIndex) => set({ callIndex }),
+      setWeekBudget: (weekBudget) => set({ weekBudget }),
+      setPreferWarm: (preferWarm) => set({ preferWarm }),
       mergeDuplicatePair: (keepId, dropId) => {
         const list = get().prospects;
         const keep = list.find((p) => p.id === keepId);
         const drop = list.find((p) => p.id === dropId);
         if (!keep || !drop) return;
         const merged = mergeProspects(keep, drop);
+        const next = list
+          .filter((p) => p.id !== dropId)
+          .map((p) => (p.id === keepId ? merged : p));
         set({
-          prospects: list
-            .filter((p) => p.id !== dropId)
-            .map((p) => (p.id === keepId ? merged : p)),
+          prospects: next,
           selectedIds: get().selectedIds.filter((id) => id !== dropId),
-          importSummary: buildImportSummary(
-            list.filter((p) => p.id !== dropId).map((p) => (p.id === keepId ? merged : p)),
-          ),
+          importSummary: buildImportSummary(next),
+          campaign: get().campaign
+            ? {
+                ...get().campaign!,
+                prospectIds: get().campaign!.prospectIds.filter((id) => id !== dropId),
+              }
+            : null,
         });
       },
       ranked: () => rankProspects(get().prospects, get().outcomes),
@@ -158,14 +177,17 @@ export const useDesk = create<State>()(
           prospects: [],
           outcomes: {},
           talkEdits: {},
+          reasonHeld: {},
           campaign: null,
           selectedIds: [],
           sourceLabel: "none",
           importSummary: null,
           step: "import",
           callIndex: 0,
+          weekBudget: 10,
+          preferWarm: true,
         }),
     }),
-    { name: "reactivation-desk-v2" },
+    { name: "reactivation-desk-v3" },
   ),
 );
