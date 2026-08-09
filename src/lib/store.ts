@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { buildDemoAdvisorBook } from "./demoBook";
+import type { InsightTagId } from "./insightTags";
 import {
   buildImportSummary,
   mergeProspects,
@@ -32,9 +33,13 @@ type State = {
   callIndex: number;
   weekBudget: WeekBudget;
   preferWarm: boolean;
+  /** Analysis tags used to focus the week list (OR match). */
+  tagFilters: InsightTagId[];
   loadDemoBook: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
   toggleSelect: (id: string) => void;
+  toggleTagFilter: (id: InsightTagId) => void;
+  clearTagFilters: () => void;
   buildWeekPlan: (n?: WeekBudget) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
@@ -59,6 +64,7 @@ function applyBook(prospects: Prospect[], sourceLabel: string) {
     outcomes: {} as Record<string, Outcome>,
     talkEdits: {} as Record<string, string>,
     reasonHeld: {} as Record<string, "yes" | "stale" | "">,
+    tagFilters: [] as InsightTagId[],
     step: "diagnose" as WizardStep,
     callIndex: 0,
   };
@@ -79,6 +85,7 @@ export const useDesk = create<State>()(
       callIndex: 0,
       weekBudget: 10,
       preferWarm: true,
+      tagFilters: [],
       loadDemoBook: () => {
         set({
           ...applyBook(
@@ -98,13 +105,34 @@ export const useDesk = create<State>()(
             : [...cur, id],
         });
       },
+      toggleTagFilter: (id) => {
+        const cur = get().tagFilters;
+        set({
+          tagFilters: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+        });
+      },
+      clearTagFilters: () => set({ tagFilters: [] }),
       buildWeekPlan: (n) => {
         const budget = n ?? get().weekBudget;
         let ranked = get().ranked();
-        if (get().preferWarm) {
-          const warm = ranked.filter((p) => p.silenceBucket === "safe_reopen");
-          const careful = ranked.filter((p) => p.silenceBucket === "handle_with_care");
-          ranked = [...warm, ...careful, ...ranked.filter((p) => p.silenceBucket === "do_not_cold_call")];
+        const preferWarm = get().preferWarm;
+        const byWarmth = (list: RankedProspect[]) => {
+          if (!preferWarm) return list;
+          return [
+            ...list.filter((p) => p.silenceBucket === "safe_reopen"),
+            ...list.filter((p) => p.silenceBucket === "handle_with_care"),
+            ...list.filter((p) => p.silenceBucket === "do_not_cold_call"),
+          ];
+        };
+        const filters = get().tagFilters;
+        if (filters.length) {
+          const hit = ranked.filter((p) =>
+            filters.some((f) => p.tags.some((t) => t.id === f)),
+          );
+          const miss = ranked.filter((p) => !hit.some((h) => h.id === p.id));
+          ranked = [...byWarmth(hit), ...byWarmth(miss)];
+        } else {
+          ranked = byWarmth(ranked);
         }
         const top = topCallable(ranked, budget).map((p) => p.id);
         set({
@@ -167,8 +195,9 @@ export const useDesk = create<State>()(
           callIndex: 0,
           weekBudget: 10,
           preferWarm: true,
+          tagFilters: [],
         }),
     }),
-    { name: "reactivation-desk-v3" },
+    { name: "reactivation-desk-v4" },
   ),
 );

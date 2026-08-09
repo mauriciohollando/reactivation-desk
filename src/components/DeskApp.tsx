@@ -5,6 +5,11 @@ import Link from "next/link";
 import Papa from "papaparse";
 import { runDemoEval } from "@/lib/eval";
 import {
+  FILTERABLE_TAG_IDS,
+  type InsightTag,
+  type InsightTagId,
+} from "@/lib/insightTags";
+import {
   excludedFromPlan,
   prospectsFromMappedRows,
   suggestColumnMapping,
@@ -62,9 +67,12 @@ export function DeskApp() {
   const outcomes = useDesk((s) => s.outcomes);
   const weekBudget = useDesk((s) => s.weekBudget);
   const preferWarm = useDesk((s) => s.preferWarm);
+  const tagFilters = useDesk((s) => s.tagFilters);
   const loadDemoBook = useDesk((s) => s.loadDemoBook);
   const loadProspects = useDesk((s) => s.loadProspects);
   const toggleSelect = useDesk((s) => s.toggleSelect);
+  const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
+  const clearTagFilters = useDesk((s) => s.clearTagFilters);
   const buildWeekPlan = useDesk((s) => s.buildWeekPlan);
   const setOutcome = useDesk((s) => s.setOutcome);
   const setTalkEdit = useDesk((s) => s.setTalkEdit);
@@ -99,6 +107,30 @@ export function DeskApp() {
       .map((id) => rankedLive.find((p) => p.id === id))
       .filter(Boolean) as RankedProspect[];
   }, [campaign, rankedLive]);
+
+  const filteredCampaignRows = useMemo(() => {
+    if (!tagFilters.length) return campaignRows;
+    return campaignRows.filter((p) =>
+      tagFilters.some((f) => p.tags.some((t) => t.id === f)),
+    );
+  }, [campaignRows, tagFilters]);
+
+  const filteredBook = useMemo(() => {
+    if (!tagFilters.length) return rankedLive;
+    return rankedLive.filter((p) =>
+      tagFilters.some((f) => p.tags.some((t) => t.id === f)),
+    );
+  }, [rankedLive, tagFilters]);
+
+  const planFilterOptions = useMemo(() => {
+    const present = new Set(campaignRows.flatMap((p) => p.tags.map((t) => t.id)));
+    return FILTERABLE_TAG_IDS.filter((id) => present.has(id));
+  }, [campaignRows]);
+
+  const bookFilterOptions = useMemo(() => {
+    const present = new Set(rankedLive.flatMap((p) => p.tags.map((t) => t.id)));
+    return FILTERABLE_TAG_IDS.filter((id) => present.has(id));
+  }, [rankedLive]);
 
   const contacted = campaignRows.filter((p) => (outcomes[p.id] ?? p.outcome) !== "queued").length;
   const blockCalling =
@@ -164,6 +196,9 @@ export function DeskApp() {
       outcome: outcomes[p.id] ?? p.outcome,
       reason_still_held: reasonHeld[p.id] ?? "",
       talk_track: talkEdits[p.id] ?? p.talkTrack,
+      why_call: p.whyCall,
+      why_support: p.whySupport,
+      tags: p.tags.map((t) => t.label).join(" | "),
       brief: p.brief,
     }));
     const csv = Papa.unparse(rows);
@@ -362,6 +397,40 @@ export function DeskApp() {
             </div>
           </div>
 
+          {(importSummary.tagCensus?.length ?? 0) > 0 && (
+            <div className="tag-census">
+              <div className="tag-census-head">
+                <span className="block-label">Signals found in this book</span>
+                <p className="muted">
+                  Select tags to focus this week&apos;s list on matching people (OR). Same book
+                  always yields the same tags.
+                </p>
+              </div>
+              <div className="tag-filter-row">
+                {importSummary.tagCensus.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={
+                      tagFilters.includes(t.id as InsightTagId)
+                        ? `tag-chip on kind-${t.kind}`
+                        : `tag-chip kind-${t.kind}`
+                    }
+                    onClick={() => toggleTagFilter(t.id as InsightTagId)}
+                  >
+                    {t.label}
+                    <em>{t.count}</em>
+                  </button>
+                ))}
+                {tagFilters.length > 0 && (
+                  <button type="button" className="btn ghost sm" onClick={clearTagFilters}>
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {importSummary.parseWarnings.map((w) => (
             <p key={w} className="error">
               {w}
@@ -421,7 +490,8 @@ export function DeskApp() {
                 {campaign.prospectIds.length} people · ~{Math.round(campaign.prospectIds.length * 0.35)} hours
               </h2>
               <p className="muted">
-                Each person has a cited reason and a risk stance. Exclusions are intentional.
+                Each person has a cited commercial reason and analysis tags from the file.
+                Exclusions are intentional.
               </p>
             </div>
             <div className="toolbar">
@@ -434,17 +504,33 @@ export function DeskApp() {
             </div>
           </div>
 
+          {planFilterOptions.length > 0 && (
+            <TagFilterBar
+              options={planFilterOptions}
+              active={tagFilters}
+              onToggle={toggleTagFilter}
+              onClear={clearTagFilters}
+              showing={filteredCampaignRows.length}
+              total={campaignRows.length}
+            />
+          )}
+
           <div className="plan-list">
-            {campaignRows.map((p, i) => (
+            {filteredCampaignRows.map((p, i) => (
               <article key={p.id} className="plan-item">
-                <div className="plan-index">{i + 1}</div>
+                <div className="plan-index">{campaignRows.findIndex((x) => x.id === p.id) + 1}</div>
                 <div className="plan-body">
                   <div className="plan-title-row">
                     <h3>{p.name}</h3>
                     <span className={`tier ${p.tier}`}>{p.tier}</span>
                     <span className="silence-pill">{silenceLabel(p.silenceBucket)}</span>
                   </div>
-                  <p className="brief">{p.brief}</p>
+                  <p className="why-call">
+                    <span className="why-label">Call because</span>
+                    {p.whyCall}
+                  </p>
+                  {p.whySupport ? <p className="why-support">{p.whySupport}</p> : null}
+                  <InsightTagRow tags={p.tags} />
                   <p className="meta-line">
                     {p.company ?? "No company"}
                     {" · "}
@@ -562,7 +648,12 @@ export function DeskApp() {
       {/* REVIEW full book */}
       {step === "review" && prospects.length > 0 && (
         <ReviewBook
-          ranked={rankedLive}
+          ranked={filteredBook}
+          allCount={rankedLive.length}
+          filterOptions={bookFilterOptions}
+          tagFilters={tagFilters}
+          onToggleTag={toggleTagFilter}
+          onClearTags={clearTagFilters}
           selectedIds={selectedIds}
           talkEdits={talkEdits}
           outcomes={outcomes}
@@ -576,6 +667,90 @@ export function DeskApp() {
       )}
     </div>
   );
+}
+
+function InsightTagRow({ tags }: { tags: InsightTag[] }) {
+  const show = tags.filter((t) => t.id !== "phone_ready").slice(0, 6);
+  if (!show.length) return null;
+  return (
+    <div className="insight-tags" title={show.map((t) => `${t.label}: ${t.cite}`).join("\n")}>
+      {show.map((t) => (
+        <span key={t.id} className={`tag-chip static kind-${t.kind}`} title={t.cite}>
+          {t.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TagFilterBar({
+  options,
+  active,
+  onToggle,
+  onClear,
+  showing,
+  total,
+}: {
+  options: InsightTagId[];
+  active: InsightTagId[];
+  onToggle: (id: InsightTagId) => void;
+  onClear: () => void;
+  showing: number;
+  total: number;
+}) {
+  return (
+    <div className="tag-filter-bar">
+      <div className="tag-census-head">
+        <span className="block-label">Filter by analysis tags</span>
+        {active.length > 0 && (
+          <span className="muted">
+            Showing {showing} of {total}
+          </span>
+        )}
+      </div>
+      <div className="tag-filter-row">
+        {options.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className={active.includes(id) ? "tag-chip on" : "tag-chip"}
+            onClick={() => onToggle(id)}
+          >
+            {prettyTag(id)}
+          </button>
+        ))}
+        {active.length > 0 && (
+          <button type="button" className="btn ghost sm" onClick={onClear}>
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function prettyTag(id: InsightTagId): string {
+  const map: Record<InsightTagId, string> = {
+    buy_sell: "Buy-sell",
+    key_person: "Key person",
+    liquidity: "Liquidity event",
+    succession: "Succession",
+    policy_window: "Policy window",
+    referral: "Warm referral",
+    prior_inbound: "Prior inbound",
+    high_value: "High value",
+    decision_maker: "Decision maker",
+    recent_reopen: "Recent reopen",
+    recoverable: "Recoverable gap",
+    careful_gap: "Careful gap",
+    do_not_cold_call: "Do not cold-call",
+    phone_ready: "Phone ready",
+    thin_file: "Thin file",
+    linkedin_only: "LinkedIn only",
+    duplicate_suspect: "Possible duplicate",
+    approach_caution: "Approach with care",
+  };
+  return map[id] ?? id;
 }
 
 function Stat({
@@ -639,7 +814,12 @@ function CallMode({
         Call {index + 1} / {total}
       </div>
       <h2>{p.name}</h2>
-      <p className="brief">{p.brief}</p>
+      <p className="why-call call-why">
+        <span className="why-label">Call because</span>
+        {p.whyCall}
+      </p>
+      {p.whySupport ? <p className="why-support">{p.whySupport}</p> : null}
+      <InsightTagRow tags={p.tags} />
       <div className="score-pills">
         <span>Opportunity {p.opportunity}</span>
         <span>Reachability {p.reachability}</span>
@@ -731,6 +911,11 @@ function CallMode({
 
 function ReviewBook({
   ranked,
+  allCount,
+  filterOptions,
+  tagFilters,
+  onToggleTag,
+  onClearTags,
   selectedIds,
   talkEdits,
   outcomes,
@@ -742,6 +927,11 @@ function ReviewBook({
   onBack,
 }: {
   ranked: RankedProspect[];
+  allCount: number;
+  filterOptions: InsightTagId[];
+  tagFilters: InsightTagId[];
+  onToggleTag: (id: InsightTagId) => void;
+  onClearTags: () => void;
   selectedIds: string[];
   talkEdits: Record<string, string>;
   outcomes: Record<string, Outcome>;
@@ -761,8 +951,11 @@ function ReviewBook({
       <div className="plan-header">
         <div>
           <p className="eyebrow">Optional deep dive</p>
-          <h2>Full book ({ranked.length})</h2>
-          <p className="muted">For defensibility. Default path does not need this screen.</p>
+          <h2>
+            Full book ({ranked.length}
+            {tagFilters.length ? ` of ${allCount}` : ""})
+          </h2>
+          <p className="muted">Filter by analysis tags. Default path does not need this screen.</p>
         </div>
         <div className="toolbar">
           <button type="button" className="btn primary" onClick={onBuild}>
@@ -773,6 +966,16 @@ function ReviewBook({
           </button>
         </div>
       </div>
+      {filterOptions.length > 0 && (
+        <TagFilterBar
+          options={filterOptions}
+          active={tagFilters}
+          onToggle={onToggleTag}
+          onClear={onClearTags}
+          showing={ranked.length}
+          total={allCount}
+        />
+      )}
       <div className="main-grid">
         <div className="queue">
           <ul>
@@ -796,7 +999,13 @@ function ReviewBook({
                   </span>
                   <span className={`tier ${p.tier}`}>{p.tier}</span>
                   <span className="name">{p.name}</span>
-                  <span className="meta">{p.company ?? "—"}</span>
+                  <span className="meta">
+                    {p.tags
+                      .filter((t) => t.kind === "opportunity")
+                      .slice(0, 2)
+                      .map((t) => t.label)
+                      .join(" · ") || (p.company ?? "—")}
+                  </span>
                 </button>
               </li>
             ))}
@@ -806,7 +1015,12 @@ function ReviewBook({
           {active && (
             <div>
               <h2>{active.name}</h2>
-              <p className="brief">{active.brief}</p>
+              <p className="why-call">
+                <span className="why-label">Call because</span>
+                {active.whyCall}
+              </p>
+              {active.whySupport ? <p className="why-support">{active.whySupport}</p> : null}
+              <InsightTagRow tags={active.tags} />
               <p className="meta-line">{silenceLabel(active.silenceBucket)}</p>
               {active.duplicateOf.map((id) => (
                 <button

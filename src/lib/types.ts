@@ -41,6 +41,12 @@ export type RankedProspect = Prospect & {
   silenceBucket: SilenceBucket;
   reasons: Evidence[];
   risks: Evidence[];
+  /** Deterministic analysis tags from the file. */
+  tags: import("./insightTags").InsightTag[];
+  /** Primary commercial reason to call (not bare recency). */
+  whyCall: string;
+  /** Supporting context: role, timing, reach. */
+  whySupport: string;
   talkTrack: string;
   brief: string;
   needsReview: boolean;
@@ -66,6 +72,8 @@ export type ImportSummary = {
   doNotColdCall: number;
   evidenceCoveragePct: number;
   parseWarnings: string[];
+  /** Top opportunity tags found in this book. */
+  tagCensus: { id: string; label: string; count: number; kind: string }[];
 };
 
 export type WizardStep =

@@ -1070,3 +1070,153 @@ select:focus {
 .memo strong {
   color: var(--text);
 }
+
+/* ——— Insight tags ——— */
+.tag-census,
+.tag-filter-bar {
+  margin: 1.25rem 0 0.5rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface-muted, #f3f6f8);
+  border-radius: 12px;
+  border: 1px solid var(--border, #e0e6eb);
+}
+
+.tag-census-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.tag-census-head .muted {
+  margin: 0;
+  font-size: 0.85rem;
+  max-width: 36rem;
+}
+
+.tag-filter-row,
+.insight-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.insight-tags {
+  margin: 0.45rem 0 0.35rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #cfd9e0;
+  background: #fff;
+  color: #38434f;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.tag-chip em {
+  font-style: normal;
+  font-weight: 700;
+  color: #0a66c2;
+  background: #e8f0fe;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+}
+
+.tag-chip:hover {
+  border-color: #0a66c2;
+}
+
+.tag-chip.on {
+  background: #0a66c2;
+  border-color: #0a66c2;
+  color: #fff;
+}
+
+.tag-chip.on em {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.tag-chip.static {
+  cursor: default;
+}
+
+.tag-chip.kind-opportunity {
+  border-color: #b7d4a8;
+  background: #f3faf0;
+  color: #2f5d1f;
+}
+
+.tag-chip.kind-timing {
+  border-color: #c5d4e8;
+  background: #f0f5fb;
+  color: #2a4a6b;
+}
+
+.tag-chip.kind-risk {
+  border-color: #e8c4c0;
+  background: #fdf4f3;
+  color: #8a2f28;
+}
+
+.tag-chip.kind-reach {
+  border-color: #d0d5db;
+  background: #f7f8f9;
+  color: #5a6570;
+}
+
+.tag-chip.on.kind-opportunity,
+.tag-chip.on.kind-timing,
+.tag-chip.on.kind-risk,
+.tag-chip.on.kind-reach {
+  background: #0a66c2;
+  border-color: #0a66c2;
+  color: #fff;
+}
+
+.why-call {
+  margin: 0.35rem 0 0.15rem;
+  font-size: 0.95rem;
+  color: var(--text);
+  line-height: 1.45;
+  padding: 0.65rem 0.75rem;
+  background: #eef5fb;
+  border-radius: 8px;
+  border-left: 3px solid #0a66c2;
+}
+
+.why-call.call-why {
+  font-size: 1.02rem;
+}
+
+.why-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0a66c2;
+  margin-bottom: 0.2rem;
+}
+
+.why-support {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.btn.sm {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+}
