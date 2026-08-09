@@ -28,11 +28,11 @@ const OUTCOMES: Outcome[] = [
 ];
 
 const STEPS: { id: WizardStep; label: string }[] = [
-  { id: "import", label: "1. Import" },
-  { id: "rank", label: "2. Rankings" },
-  { id: "campaign", label: "3. This week" },
-  { id: "call", label: "4. Call mode" },
-  { id: "done", label: "5. Export" },
+  { id: "import", label: "Import" },
+  { id: "rank", label: "Rankings" },
+  { id: "campaign", label: "This week" },
+  { id: "call", label: "Call mode" },
+  { id: "done", label: "Export" },
 ];
 
 const FIELD_LABELS: Record<FieldKey, string> = {
@@ -233,34 +233,50 @@ export function DeskApp() {
           e.target.value = "";
         }}
       />
+
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark" aria-hidden>
+            RD
+          </div>
+          <div className="brand-text">
+            <strong>Reactivation Desk</strong>
+            <span>Advisor outreach workspace</span>
+          </div>
+        </div>
+        <div className="topbar-actions">
+          <button type="button" className="linkish" onClick={() => setShowDetails((v) => !v)}>
+            {showDetails ? "Hide pricing" : "Pricing"}
+          </button>
+          <Link className="btn ghost" href="/memo">
+            Decision memo
+          </Link>
+        </div>
+      </header>
+
       <div className="persist-banner">
-        Saved in this browser only (localStorage). Not synced across devices.
+        <span className="persist-dot" aria-hidden />
+        Progress is saved in this browser only. Not synced across devices.
       </div>
 
       <header className="desk-header">
         <div>
-          <p className="eyebrow">Reactivation Desk</p>
+          <p className="eyebrow">Weekly reactivation</p>
           <h1>Who should you call this week?</h1>
           <p className="sub">
-            Upload a messy prospect book. Get a ranked list with evidence, safer scripts,
-            and a durable outcome log. You stay in control of every outreach.
+            Turn a messy prospect export into a ranked call list with evidence, safer scripts,
+            and a durable outcome log.
           </p>
-        </div>
-        <div className="header-links">
-          <Link href="/memo">Decision memo</Link>
-          <button type="button" className="linkish" onClick={() => setShowDetails((v) => !v)}>
-            {showDetails ? "Hide details" : "Pricing & hard nos"}
-          </button>
         </div>
       </header>
 
       {showDetails && (
         <section className="details-panel">
           <div>
-            <strong>$299/mo</strong> independent advisor · or $1,500 cleanup sprint + $99/mo
+            <strong>$299/mo</strong> for independent advisors · or $1,500 cleanup sprint + $99/mo
           </div>
           <ul>
-            <li>No continuous CRM / email access</li>
+            <li>No continuous CRM or email access</li>
             <li>No auto-send</li>
             <li>Scores cite row evidence or ask for review</li>
           </ul>
@@ -285,19 +301,21 @@ export function DeskApp() {
       {step === "import" && prospects.length === 0 && (
         <section className="hero-empty">
           <h2>Start in under two minutes</h2>
-          <p>Best for the panel: run the guided demo, then walk evidence and call mode.</p>
+          <p>
+            Run the guided demo for the panel walkthrough, or bring your own CSV export.
+          </p>
           <div className="toolbar">
             <button type="button" className="btn primary lg" onClick={runDemoAutopilot}>
-              Start demo (2 min)
+              Start demo
             </button>
             <button type="button" className="btn" onClick={loadSynthetic}>
-              Load synthetic book only
+              Load sample book
             </button>
             <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-              Upload my CSV
+              Upload CSV
             </button>
             <a className="btn ghost" href="/sample-prospects.csv" download>
-              Download CSV template
+              CSV template
             </a>
           </div>
           {csvError && <p className="error">{csvError}</p>}
@@ -562,11 +580,18 @@ export function DeskApp() {
           )}
 
           <section className="eval-strip">
-            <h2>Demo eval (precision@10 on synthetic labels)</h2>
+            <h2>Model quality check</h2>
             <p className="muted">
-              Model {Math.round(evalScores.model * 100)}% · Recency-only{" "}
-              {Math.round(evalScores.recency * 100)}% · Random{" "}
-              {Math.round(evalScores.random * 100)}% · labeled pool {evalScores.relevantCount}
+              Precision@{evalScores.k} on synthetic labels:{" "}
+              <strong style={{ color: "var(--text)" }}>
+                model {Math.round(evalScores.model * 100)}%
+              </strong>
+              {" · "}
+              recency {Math.round(evalScores.recency * 100)}%
+              {" · "}
+              baseline {Math.round(evalScores.random * 100)}%
+              {" · "}
+              labeled pool {evalScores.relevantCount}
             </p>
           </section>
         </>

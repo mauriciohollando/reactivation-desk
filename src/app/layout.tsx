@@ -1,21 +1,15 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Sans, IBM_Plex_Serif } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const sans = IBM_Plex_Sans({
+const sans = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-});
-
-const serif = IBM_Plex_Serif({
-  variable: "--font-serif",
-  subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "Reactivation Desk · Rowan case",
+  title: "Reactivation Desk",
   description:
     "Prioritize dormant advisor prospects from exports — ranked outreach with evidence, human action, durable outcomes.",
 };
@@ -26,13 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${sans.variable} ${serif.variable} h-full`}>
-      <body
-        className={`${sans.className} min-h-full antialiased`}
-        style={{ fontFamily: "var(--font-sans), IBM Plex Sans, sans-serif" }}
-      >
-        {children}
-      </body>
+    <html lang="en" className={`${sans.variable} h-full`}>
+      <body className={`${sans.className} min-h-full antialiased`}>{children}</body>
     </html>
   );
 }

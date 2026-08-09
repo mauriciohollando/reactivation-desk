@@ -6,10 +6,22 @@ export default function MemoPage() {
 
   return (
     <main className="memo">
-      <Link className="back" href="/">
-        ← Back to product
-      </Link>
-      <p className="eyebrow">Decision memo · ≤1 page</p>
+      <div className="topbar" style={{ margin: "0 0 1.5rem", borderRadius: 0 }}>
+        <div className="brand">
+          <div className="brand-mark" aria-hidden>
+            RD
+          </div>
+          <div className="brand-text">
+            <strong>Reactivation Desk</strong>
+            <span>Decision memo</span>
+          </div>
+        </div>
+        <Link className="btn" href="/">
+          Back to product
+        </Link>
+      </div>
+
+      <p className="eyebrow">Round 3 case · one page</p>
       <h1>What Rowan should build first</h1>
 
       <h2>1. What we built, and for whom</h2>
@@ -84,10 +96,9 @@ export default function MemoPage() {
       <p>
         Precision@{evalScores.k} on synthetic labeled priorities:{" "}
         <strong>model {Math.round(evalScores.model * 100)}%</strong>, recency-only{" "}
-        {Math.round(evalScores.recency * 100)}%, random{" "}
+        {Math.round(evalScores.recency * 100)}%, baseline{" "}
         {Math.round(evalScores.random * 100)}% (label pool {evalScores.relevantCount}).
-        Labels are a disclosed proxy (high opportunity + reachable + not do-not-cold-call),
-        used to show measurement habit, not production truth.
+        Labels are a disclosed proxy used to show measurement habit, not production truth.
       </p>
 
       <h2>Assumptions disclosed</h2>
