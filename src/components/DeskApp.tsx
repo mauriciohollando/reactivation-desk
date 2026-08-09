@@ -286,9 +286,6 @@ export function DeskApp() {
             <a className="btn ghost" href="/demo-advisor-book.csv" download>
               Download sample CSV
             </a>
-            <a className="btn ghost" href="/meeting-crm-export.csv" download>
-              Download messy CRM export (~1,050)
-            </a>
           </div>
           {csvError && <p className="error">{csvError}</p>}
         </section>

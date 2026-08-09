@@ -1,10 +1,12 @@
 /**
- * Generates public/meeting-crm-export.csv — a messy ~1000-row CRM export
- * for the live Upload CSV demo (separate from the in-app sample book).
+ * Generates a messy ~1000-row CRM export for the live Upload CSV demo.
+ * Writes to ~/Downloads by default so you can import a local file in the meeting
+ * (not served from the site).
  *
- * Run: npx tsx scripts/generateMeetingCrmCsv.ts
+ * Run: npm run generate:meeting-csv
  */
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HEADERS = [
@@ -564,9 +566,12 @@ function main() {
   }
 
   const body = [HEADERS.join(","), ...rows.map(rowToLine)].join("\n") + "\n";
-  const out = join(process.cwd(), "public", "meeting-crm-export.csv");
+  const downloads = join(homedir(), "Downloads");
+  mkdirSync(downloads, { recursive: true });
+  const out = join(downloads, "advisor-book-crm-export.csv");
   writeFileSync(out, body, "utf8");
   console.log(`Wrote ${rows.length} contacts → ${out}`);
+  console.log("In the meeting: Upload CSV → pick this file from Downloads.");
 }
 
 main();
