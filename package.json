@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:meeting-csv": "npx tsx scripts/generateMeetingCrmCsv.ts"
   },
   "dependencies": {
     "next": "16.3.0",
