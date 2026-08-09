@@ -2,8 +2,9 @@
 
 Rowan Round 3 case prototype: **immediately monetizable** reactivation workbench for independent financial advisors.
 
-**Live:** (set after deploy)  
-**Workflow:** messy export / synthetic book → ranked queue with evidence → human campaign → outcomes → CSV export
+**Live:** https://reactivation-desk.vercel.app  
+**Repo:** https://github.com/mauriciohollando/reactivation-desk  
+**Memo:** https://reactivation-desk.vercel.app/memo
 
 ## Hard nos
 
