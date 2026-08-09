@@ -1,6 +1,15 @@
-import type { Evidence, Outcome, Prospect, RankedProspect } from "./types";
+import type {
+  ColumnMapping,
+  Evidence,
+  FieldKey,
+  ImportSummary,
+  Outcome,
+  Prospect,
+  RankedProspect,
+  SilenceBucket,
+} from "./types";
 
-function daysSince(iso?: string): number | null {
+export function daysSince(iso?: string): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return null;
@@ -16,143 +25,201 @@ function pushEvidence(
   list.push({ field, snippet, weight });
 }
 
+function hasUsablePhone(phone?: string) {
+  return Boolean(phone && !phone.includes("?"));
+}
+
+function featureTags(p: Prospect): string[] {
+  const tags: string[] = [];
+  const seg = (p.segment ?? "").toLowerCase();
+  const notes = (p.notes ?? "").toLowerCase();
+  if (seg.includes("business owner") || seg.includes("hnw")) tags.push("seg:owner");
+  if (seg.includes("referral") || seg.includes("inbound")) tags.push("seg:warm_source");
+  if (notes.includes("buy-sell") || notes.includes("key person")) tags.push("note:protection");
+  if (notes.includes("acquisition") || notes.includes("selling")) tags.push("note:liquidity");
+  if (notes.includes("anniversary") || notes.includes("policy")) tags.push("note:policy");
+  if (notes.includes("referred") || notes.includes("high priority")) tags.push("note:priority");
+  const days = daysSince(p.lastTouch);
+  if (days != null && days <= 90) tags.push("recency:hot");
+  else if (days != null && days <= 365) tags.push("recency:warm");
+  return tags;
+}
+
+function learnWeights(outcomes: Record<string, Outcome>, prospects: Prospect[]) {
+  const weights = new Map<string, number>();
+  const byId = new Map(prospects.map((p) => [p.id, p]));
+  for (const [id, outcome] of Object.entries(outcomes)) {
+    if (outcome !== "meeting" && outcome !== "sale") continue;
+    const p = byId.get(id);
+    if (!p) continue;
+    for (const tag of featureTags(p)) {
+      weights.set(tag, (weights.get(tag) ?? 0) + (outcome === "sale" ? 3 : 2));
+    }
+  }
+  return weights;
+}
+
 export function rankProspects(
   prospects: Prospect[],
   outcomes: Record<string, Outcome> = {},
 ): RankedProspect[] {
-  const meetingBoost = new Set(
-    Object.entries(outcomes)
-      .filter(([, o]) => o === "meeting" || o === "sale")
-      .map(([id]) => id),
-  );
+  const learned = learnWeights(outcomes, prospects);
 
   const ranked = prospects.map((p) => {
     const reasons: Evidence[] = [];
     const risks: Evidence[] = [];
-    let score = 35;
+    let opportunity = 40;
+    let reachability = 40;
 
     const days = daysSince(p.lastTouch);
+    let silenceBucket: SilenceBucket = "safe_reopen";
+
     if (days != null) {
       if (days <= 90) {
-        score += 22;
-        pushEvidence(reasons, "Last Touch", `${days}d ago — still warm`, "high");
+        opportunity += 20;
+        pushEvidence(reasons, "Last touch", `${days}d ago, still warm`, "high");
       } else if (days <= 365) {
-        score += 10;
-        pushEvidence(reasons, "Last Touch", `${days}d ago — recoverable`, "medium");
+        opportunity += 10;
+        pushEvidence(reasons, "Last touch", `${days}d ago, recoverable`, "medium");
       } else if (days <= 730) {
-        score += 2;
-        pushEvidence(reasons, "Last Touch", `${days}d ago — cold`, "low");
-        pushEvidence(risks, "Silence risk", "Long gap — reopen carefully", "high");
+        opportunity += 2;
+        silenceBucket = "handle_with_care";
+        pushEvidence(reasons, "Last touch", `${days}d ago, cold`, "low");
+        pushEvidence(risks, "Silence", "Long gap, reopen carefully", "high");
       } else {
-        score -= 8;
-        pushEvidence(risks, "Silence risk", `${days}d silence — high opt-out risk`, "high");
+        opportunity -= 6;
+        silenceBucket = "do_not_cold_call";
+        pushEvidence(risks, "Silence", `${days}d silence, high opt-out risk`, "high");
       }
     } else {
-      score -= 5;
-      pushEvidence(risks, "Last Touch", "Missing / unparseable last touch", "medium");
+      opportunity -= 4;
+      silenceBucket = "handle_with_care";
+      pushEvidence(risks, "Last touch", "Missing or unreadable last touch", "medium");
     }
 
     const seg = (p.segment ?? "").toLowerCase();
     if (seg.includes("business owner") || seg.includes("hnw")) {
-      score += 14;
+      opportunity += 16;
       pushEvidence(reasons, "Segment", p.segment!, "high");
     } else if (seg.includes("referral") || seg.includes("inbound")) {
-      score += 10;
+      opportunity += 12;
       pushEvidence(reasons, "Segment", p.segment!, "medium");
     } else if (p.segment) {
-      score += 4;
+      opportunity += 4;
       pushEvidence(reasons, "Segment", p.segment, "low");
     }
 
     const notes = (p.notes ?? "").toLowerCase();
     if (notes.includes("buy-sell") || notes.includes("key person") || notes.includes("acquisition") || notes.includes("selling")) {
-      score += 16;
+      opportunity += 16;
       pushEvidence(reasons, "Notes", p.notes!.slice(0, 120), "high");
     } else if (notes.includes("high priority") || notes.includes("referred")) {
-      score += 12;
+      opportunity += 12;
       pushEvidence(reasons, "Notes", p.notes!.slice(0, 120), "high");
     } else if (notes.includes("anniversary") || notes.includes("policy")) {
-      score += 8;
+      opportunity += 8;
       pushEvidence(reasons, "Notes", p.notes!.slice(0, 120), "medium");
     } else if (p.notes) {
-      score += 3;
+      opportunity += 3;
       pushEvidence(reasons, "Notes", p.notes.slice(0, 120), "low");
     }
 
     if ((p.estimatedValue ?? "").toLowerCase().includes("high") || (p.estimatedValue ?? "").includes("$")) {
-      score += 10;
+      opportunity += 10;
       pushEvidence(reasons, "Value", p.estimatedValue!, "medium");
     }
 
     if (p.title && /owner|ceo|founder|president|cfo|partner/i.test(p.title)) {
-      score += 8;
+      opportunity += 8;
       pushEvidence(reasons, "Title", p.title, "medium");
     }
 
-    // Contactability
-    const hasPhone = Boolean(p.phone && !p.phone.includes("?"));
-    const hasEmail = Boolean(p.email);
-    if (hasPhone && hasEmail) {
-      score += 8;
-      pushEvidence(reasons, "Contact", "Phone + email present", "medium");
-    } else if (hasPhone || hasEmail) {
-      score += 4;
-      pushEvidence(reasons, "Contact", hasPhone ? "Phone only" : "Email only", "low");
+    const phoneOk = hasUsablePhone(p.phone);
+    const emailOk = Boolean(p.email);
+    if (phoneOk && emailOk) {
+      reachability += 30;
+      pushEvidence(reasons, "Reachability", "Phone and email present", "medium");
+    } else if (phoneOk) {
+      reachability += 22;
+      pushEvidence(reasons, "Reachability", "Phone only", "medium");
+    } else if (emailOk) {
+      reachability += 14;
+      pushEvidence(reasons, "Reachability", "Email only", "low");
     } else if (p.linkedin) {
-      score -= 2;
-      pushEvidence(risks, "Contact", "LinkedIn-only — thin file", "high");
+      reachability -= 10;
+      pushEvidence(risks, "Reachability", "LinkedIn only, thin contact file", "high");
     } else {
-      score -= 12;
-      pushEvidence(risks, "Contact", "No usable phone, email, or LinkedIn", "high");
+      reachability -= 25;
+      pushEvidence(risks, "Reachability", "No usable phone, email, or LinkedIn", "high");
     }
 
     if (!p.company && !p.notes) {
-      score -= 6;
-      pushEvidence(risks, "Data quality", "Thin file — name little else", "medium");
+      opportunity -= 8;
+      pushEvidence(risks, "Data quality", "Thin file, little beyond the name", "medium");
     }
 
-    if ((p.notes ?? "").toLowerCase().includes("duplicate") || (p.notes ?? "").toLowerCase().includes("wrong number")) {
-      score -= 10;
+    if (notes.includes("duplicate") || notes.includes("wrong number")) {
+      reachability -= 15;
       pushEvidence(risks, "Data quality", p.notes!, "high");
     }
 
-    if ((p.notes ?? "").toLowerCase().includes("do not email") || (p.notes ?? "").toLowerCase().includes("angry")) {
+    if (notes.includes("do not email") || notes.includes("angry")) {
       pushEvidence(risks, "Approach", p.notes!.slice(0, 100), "medium");
+      if (silenceBucket === "safe_reopen") silenceBucket = "handle_with_care";
     }
 
-    // Light outcome learning: boost similar segments when meetings/sales logged
-    if (meetingBoost.size > 0 && seg) {
-      score += 3;
-      pushEvidence(reasons, "Outcome learning", "Similar to prior meeting/sale patterns this session", "low");
+    // Outcome learning: boost tags that converted this session
+    let learnBoost = 0;
+    for (const tag of featureTags(p)) {
+      const w = learned.get(tag) ?? 0;
+      if (w > 0) {
+        learnBoost += Math.min(8, w);
+      }
+    }
+    if (learnBoost > 0) {
+      opportunity += learnBoost;
+      pushEvidence(
+        reasons,
+        "Outcome learning",
+        `Boosted from patterns in logged meetings/sales (+${learnBoost})`,
+        "medium",
+      );
     }
 
-    score = Math.max(0, Math.min(99, Math.round(score)));
+    opportunity = Math.max(0, Math.min(99, Math.round(opportunity)));
+    reachability = Math.max(0, Math.min(99, Math.round(reachability)));
 
-    const needsHuman =
+    // Prefer reachable opportunity
+    const score = Math.round(opportunity * 0.62 + reachability * 0.38);
+
+    const needsReview =
       risks.some((r) => r.weight === "high") ||
-      reasons.length === 0 ||
-      (!hasPhone && !hasEmail);
+      (!phoneOk && !emailOk) ||
+      silenceBucket === "do_not_cold_call";
 
     let tier: RankedProspect["tier"] = "warm";
-    if (needsHuman && score < 45) tier = "risk";
-    else if (score >= 70) tier = "hot";
-    else if (score < 45) tier = "thin";
-
-    const talkTrack = buildTalkTrack(p, days, risks);
+    if (silenceBucket === "do_not_cold_call" || (needsReview && score < 50)) tier = "risk";
+    else if (score >= 72 && reachability >= 55) tier = "hot";
+    else if (score < 48 || reachability < 35) tier = "thin";
 
     return {
       ...p,
       score,
+      opportunity,
+      reachability,
       tier,
+      silenceBucket,
       reasons,
       risks,
-      talkTrack,
-      needsHuman,
+      talkTrack: buildTalkTrack(p, days, silenceBucket),
+      brief: buildBrief(p, reasons, risks, silenceBucket),
+      needsReview,
+      duplicateOf: [] as string[],
       outcome: outcomes[p.id] ?? "queued",
     } satisfies RankedProspect;
   });
 
-  // Duplicate detection pass
+  // Duplicate detection
   const byName = new Map<string, string[]>();
   for (const r of ranked) {
     const key = r.name.trim().toLowerCase();
@@ -161,71 +228,193 @@ export function rankProspects(
     byName.set(key, list);
   }
   for (const r of ranked) {
-    const dups = byName.get(r.name.trim().toLowerCase()) ?? [];
-    if (dups.length > 1) {
+    const dups = (byName.get(r.name.trim().toLowerCase()) ?? []).filter((id) => id !== r.id);
+    if (dups.length) {
+      r.duplicateOf = dups;
       r.risks.push({
         field: "Duplicate",
-        snippet: `Possible duplicate of ${dups.filter((id) => id !== r.id).join(", ")}`,
+        snippet: `Possible duplicate of ${dups.join(", ")}`,
         weight: "high",
       });
-      r.needsHuman = true;
+      r.needsReview = true;
       r.score = Math.max(0, r.score - 5);
+      r.reachability = Math.max(0, r.reachability - 5);
     }
   }
 
-  return ranked.sort((a, b) => b.score - a.score);
+  return ranked.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.opportunity - a.opportunity;
+  });
 }
 
-function buildTalkTrack(p: Prospect, days: number | null, risks: Evidence[]): string {
-  const silence = risks.some((r) => r.field === "Silence risk");
+function buildBrief(
+  p: Prospect,
+  reasons: Evidence[],
+  risks: Evidence[],
+  silence: SilenceBucket,
+): string {
+  const why = reasons.find((r) => r.weight === "high") ?? reasons[0];
+  const risk = risks.find((r) => r.weight === "high") ?? risks[0];
+  const bits = [
+    why ? `Call because: ${why.snippet}` : "Call because: limited file evidence",
+    risk ? `Watch: ${risk.snippet}` : null,
+    silence === "do_not_cold_call"
+      ? "Bucket: do not cold-call"
+      : silence === "handle_with_care"
+        ? "Bucket: handle with care"
+        : "Bucket: safe reopen",
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
+function buildTalkTrack(
+  p: Prospect,
+  days: number | null,
+  silence: SilenceBucket,
+): string {
   const first = p.name.split(" ")[0] ?? p.name;
   const companyBit = p.company ? ` at ${p.company}` : "";
 
-  if (silence) {
-    return `Hi ${first} — it's been a long time and I don't want to be a nuisance. When we last spoke${companyBit}, we touched on planning topics. If it's no longer useful to stay in touch, say the word and I'll close the file. If helpful, I have 15 minutes this week for a quick catch-up — no pitch required.`;
+  if (silence === "do_not_cold_call") {
+    return `Hi ${first}, it has been a very long time and I will keep this short. If you would rather I close your file, just say so. If a brief catch-up${companyBit} would still be useful, I have 15 minutes this week with no pitch required.`;
+  }
+
+  if (silence === "handle_with_care") {
+    return `Hi ${first}, it has been a while and I do not want to be a nuisance. When we last spoke${companyBit}, we touched on planning topics. If timing is bad, tell me a better month. If helpful, I can do a quick no-pressure check-in this week.`;
   }
 
   if ((p.notes ?? "").toLowerCase().includes("buy-sell") || (p.notes ?? "").toLowerCase().includes("key person")) {
-    return `Hi ${first} — circling back on the buy-sell / key-person conversation from our notes. Business-owner planning has been active for peers in similar spots. Open to a short call to see if anything changed${companyBit}?`;
+    return `Hi ${first}, circling back on the buy-sell / key-person notes in your file. Open to a short call to see if anything changed${companyBit}?`;
   }
 
   if ((p.notes ?? "").toLowerCase().includes("anniversary") || (p.notes ?? "").toLowerCase().includes("policy")) {
-    return `Hi ${first} — your file flagged a coverage / policy review window. Happy to do a no-pressure check-in so nothing drifts. Does a brief call this week work?`;
+    return `Hi ${first}, your file flagged a coverage or policy review window. Happy to do a brief check-in so nothing drifts. Does a short call this week work?`;
   }
 
   if (days != null && days <= 90) {
-    return `Hi ${first} — following up while our last conversation is still recent${companyBit}. Wanted to close the loop and see if you'd like to schedule a focused planning chat.`;
+    return `Hi ${first}, following up while our last conversation is still recent${companyBit}. Wanted to close the loop and see if a focused planning chat would help.`;
   }
 
-  return `Hi ${first} — I'm prioritizing a small set of prior relationships this week${companyBit}. Based on our file, a short catch-up seemed worth offering. If timing is bad, I can note a better month — either way appreciated.`;
+  return `Hi ${first}, I am prioritizing a small set of prior relationships this week${companyBit}. Based on our file, a short catch-up seemed worth offering. If timing is bad, I can note a better month.`;
 }
 
-export function prospectsFromCsvRows(rows: Record<string, string>[]): Prospect[] {
+const FIELD_ALIASES: Record<FieldKey, string[]> = {
+  name: ["name", "full name", "fullname", "contact", "contact name", "client"],
+  email: ["email", "e-mail", "email address", "mail"],
+  phone: ["phone", "mobile", "cell", "telephone", "phone number"],
+  company: ["company", "firm", "organization", "business", "employer"],
+  title: ["title", "role", "job title", "position"],
+  segment: ["segment", "type", "category", "persona", "tag"],
+  source: ["source", "origin", "channel"],
+  lastTouch: ["last touch", "last_touch", "last contact", "lastcontact", "last activity", "last_activity"],
+  notes: ["notes", "note", "comments", "comment", "memo"],
+  estimatedValue: ["value", "estimated value", "aum", "potential", "est value"],
+  linkedin: ["linkedin", "li", "linkedin url", "profile"],
+};
+
+export function suggestColumnMapping(headers: string[]): ColumnMapping {
+  const mapping: ColumnMapping = {};
+  const used = new Set<string>();
+  for (const [field, aliases] of Object.entries(FIELD_ALIASES) as [FieldKey, string[]][]) {
+    const hit = headers.find((h) => {
+      const key = h.toLowerCase().trim();
+      return aliases.includes(key) && !used.has(h);
+    });
+    if (hit) {
+      mapping[field] = hit;
+      used.add(hit);
+    }
+  }
+  return mapping;
+}
+
+export function prospectsFromMappedRows(
+  rows: Record<string, string>[],
+  mapping: ColumnMapping,
+): Prospect[] {
   return rows.map((raw, i) => {
-    const get = (...keys: string[]) => {
-      for (const k of keys) {
-        const found = Object.entries(raw).find(
-          ([key]) => key.toLowerCase().trim() === k.toLowerCase(),
-        );
-        if (found?.[1]?.trim()) return found[1].trim();
-      }
-      return undefined;
+    const get = (field: FieldKey) => {
+      const header = mapping[field];
+      if (!header) return undefined;
+      const v = raw[header];
+      return v?.trim() || undefined;
     };
-    const name = get("name", "full name", "contact") ?? `Unknown ${i + 1}`;
+    const name = get("name") ?? `Unknown ${i + 1}`;
     return {
       id: `csv-${i + 1}-${name.slice(0, 12).replace(/\s+/g, "-").toLowerCase()}`,
       name,
-      email: get("email", "e-mail"),
-      phone: get("phone", "mobile", "cell"),
-      company: get("company", "firm", "organization"),
-      title: get("title", "role"),
-      segment: get("segment", "type", "category"),
+      email: get("email"),
+      phone: get("phone"),
+      company: get("company"),
+      title: get("title"),
+      segment: get("segment"),
       source: get("source") ?? "csv upload",
-      lastTouch: get("last touch", "last_touch", "last contact", "lastcontact"),
-      notes: get("notes", "note", "comments"),
-      estimatedValue: get("value", "estimated value", "aum"),
-      linkedin: get("linkedin", "li"),
+      lastTouch: get("lastTouch"),
+      notes: get("notes"),
+      estimatedValue: get("estimatedValue"),
+      linkedin: get("linkedin"),
       raw,
     };
   });
+}
+
+/** Back-compat helper used by simple paste path. */
+export function prospectsFromCsvRows(rows: Record<string, string>[]): Prospect[] {
+  if (!rows.length) return [];
+  const headers = Object.keys(rows[0] ?? {});
+  return prospectsFromMappedRows(rows, suggestColumnMapping(headers));
+}
+
+export function buildImportSummary(prospects: Prospect[]): ImportSummary {
+  const ranked = rankProspects(prospects, {});
+  const missingContact = ranked.filter(
+    (p) => !hasUsablePhone(p.phone) && !p.email,
+  ).length;
+  const thinFiles = ranked.filter((p) => !p.company && !p.notes).length;
+  const longSilence = ranked.filter((p) => p.silenceBucket !== "safe_reopen").length;
+  const dupNames = new Set(
+    ranked.filter((p) => p.duplicateOf.length > 0).map((p) => p.name.toLowerCase()),
+  );
+  const warnings: string[] = [];
+  if (!prospects.some((p) => p.name && p.name !== "Unknown")) {
+    warnings.push("No clear Name column detected.");
+  }
+  if (missingContact === prospects.length) {
+    warnings.push("No usable phone or email on any row. Campaign calling will be blocked.");
+  }
+  return {
+    total: prospects.length,
+    missingContact,
+    thinFiles,
+    duplicateGroups: dupNames.size,
+    longSilence,
+    parseWarnings: warnings,
+  };
+}
+
+export function mergeProspects(primary: Prospect, secondary: Prospect): Prospect {
+  const pick = <T,>(a: T | undefined, b: T | undefined) => a || b;
+  const notes = [primary.notes, secondary.notes].filter(Boolean).join(" | ");
+  return {
+    ...primary,
+    email: pick(primary.email, secondary.email),
+    phone: pick(primary.phone, secondary.phone),
+    company: pick(primary.company, secondary.company),
+    title: pick(primary.title, secondary.title),
+    segment: pick(primary.segment, secondary.segment),
+    source: pick(primary.source, secondary.source),
+    lastTouch: pick(primary.lastTouch, secondary.lastTouch),
+    notes: notes || undefined,
+    estimatedValue: pick(primary.estimatedValue, secondary.estimatedValue),
+    linkedin: pick(primary.linkedin, secondary.linkedin),
+    raw: { ...secondary.raw, ...primary.raw },
+  };
+}
+
+export function topCallable(ranked: RankedProspect[], n: number) {
+  return ranked
+    .filter((p) => p.silenceBucket !== "do_not_cold_call")
+    .filter((p) => hasUsablePhone(p.phone) || p.email)
+    .slice(0, n);
 }

@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { runDemoEval } from "@/lib/eval";
 
 export default function MemoPage() {
+  const evalScores = runDemoEval(10);
+
   return (
     <main className="memo">
       <Link className="back" href="/">
@@ -12,10 +15,10 @@ export default function MemoPage() {
       <h2>1. What we built, and for whom</h2>
       <p>
         <strong>Reactivation Desk</strong> for solo / small independent advisors
-        (Advisor A–like): upload or load a messy prior-prospect book, get a ranked
-        who/why/what-to-say queue with citations, select this week&apos;s list, edit
-        talk tracks, log outcomes, export a durable campaign CSV. No continuous
-        CRM/email access. No auto-send.
+        (Advisor A-like): upload or load a messy prior-prospect book, get a ranked
+        who/why/what-to-say queue with opportunity vs reachability scores, silence
+        buckets, select this week&apos;s list, work it in call mode, log outcomes,
+        export a durable campaign CSV. No continuous CRM/email access. No auto-send.
       </p>
 
       <h2>2. Strongest alternatives rejected</h2>
@@ -35,7 +38,7 @@ export default function MemoPage() {
         </li>
         <li>
           <strong>Book transition / succession OS (E/I):</strong> high ARPU, rare,
-          often consulting — not an immediate SaaS wedge.
+          often consulting, not an immediate SaaS wedge.
         </li>
         <li>
           <strong>Inbound CRM-lite (F) / CFO analytics (B):</strong> clean products,
@@ -46,14 +49,13 @@ export default function MemoPage() {
       <h2>3. Evidence for, against, and the tradeoff</h2>
       <p>
         <strong>For:</strong> A reviewed 20 remembered prospects in ~7h → 3 meetings
-        → ~$4k FYC; can buy tools &lt;$500/mo; forbids continuous system access. J&apos;s
+        → ~$4k FYC; can buy tools under ~$500/mo; forbids continuous system access. J&apos;s
         digitization sample → meetings and ~$10k commission.{" "}
         <strong>Against:</strong> A has not tested the colder remaining 100; J shows
         long-silence outreach can trigger opt-outs; willingness to pay for SaaS vs
         one-time cleanup is mixed.{" "}
-        <strong>Tradeoff accepted:</strong> we optimize for an independent buyer and
-        export-based workflow now, and defer firm-wide intelligence and content
-        platforms.
+        <strong>Tradeoff accepted:</strong> optimize for an independent buyer and
+        export-based workflow now; defer firm-wide intelligence and content platforms.
       </p>
 
       <h2>4. Who pays, substitutes, price, why now</h2>
@@ -71,17 +73,27 @@ export default function MemoPage() {
         <strong>Kill assumption:</strong> advisors will not pay if they must still
         upload data and make the calls themselves.{" "}
         <strong>Test:</strong> five advisors, one uploaded book each; measure meetings
-        from model-ranked &quot;cold&quot; names vs their usual memory cherry-pick
+        from model-ranked cold names vs their usual memory cherry-pick
         (precision@10 + meetings/week).{" "}
-        <strong>If true:</strong> light CRM import (not continuous inbox), outcome
-        learning, then compliant snippet packs and transition add-ons on the same
-        ranking engine.
+        <strong>If true:</strong> light CRM import (not continuous inbox), stronger
+        outcome learning, then compliant snippet packs and transition add-ons on the
+        same ranking engine.
+      </p>
+
+      <h2>Demo eval snapshot</h2>
+      <p>
+        Precision@{evalScores.k} on synthetic labeled priorities:{" "}
+        <strong>model {Math.round(evalScores.model * 100)}%</strong>, recency-only{" "}
+        {Math.round(evalScores.recency * 100)}%, random{" "}
+        {Math.round(evalScores.random * 100)}% (label pool {evalScores.relevantCount}).
+        Labels are a disclosed proxy (high opportunity + reachable + not do-not-cold-call),
+        used to show measurement habit, not production truth.
       </p>
 
       <h2>Assumptions disclosed</h2>
       <ul>
         <li>Default demo book is synthetic and labeled as such.</li>
-        <li>Ranking is deterministic evidence scoring (no live LLM required for the demo).</li>
+        <li>Ranking is deterministic evidence scoring (no live LLM required).</li>
         <li>Persistence is browser localStorage for the case artifact.</li>
       </ul>
     </main>

@@ -6,6 +6,8 @@ export type Outcome =
   | "skip"
   | "do_not_contact";
 
+export type SilenceBucket = "safe_reopen" | "handle_with_care" | "do_not_cold_call";
+
 export type Prospect = {
   id: string;
   name: string;
@@ -15,7 +17,7 @@ export type Prospect = {
   title?: string;
   segment?: string;
   source?: string;
-  lastTouch?: string; // ISO date or free text
+  lastTouch?: string;
   notes?: string;
   estimatedValue?: string;
   linkedin?: string;
@@ -29,12 +31,18 @@ export type Evidence = {
 };
 
 export type RankedProspect = Prospect & {
+  /** Combined sort score (opportunity × reachability). */
   score: number;
+  opportunity: number;
+  reachability: number;
   tier: "hot" | "warm" | "thin" | "risk";
+  silenceBucket: SilenceBucket;
   reasons: Evidence[];
   risks: Evidence[];
   talkTrack: string;
-  needsHuman: boolean;
+  brief: string;
+  needsReview: boolean;
+  duplicateOf: string[];
   outcome: Outcome;
 };
 
@@ -44,3 +52,29 @@ export type Campaign = {
   createdAt: string;
   prospectIds: string[];
 };
+
+export type ImportSummary = {
+  total: number;
+  missingContact: number;
+  thinFiles: number;
+  duplicateGroups: number;
+  longSilence: number;
+  parseWarnings: string[];
+};
+
+export type WizardStep = "import" | "rank" | "campaign" | "call" | "done";
+
+export type FieldKey =
+  | "name"
+  | "email"
+  | "phone"
+  | "company"
+  | "title"
+  | "segment"
+  | "source"
+  | "lastTouch"
+  | "notes"
+  | "estimatedValue"
+  | "linkedin";
+
+export type ColumnMapping = Partial<Record<FieldKey, string>>;

@@ -6,11 +6,21 @@ Rowan Round 3 case prototype: **immediately monetizable** reactivation workbench
 **Repo:** https://github.com/mauriciohollando/reactivation-desk  
 **Memo:** https://reactivation-desk.vercel.app/memo
 
-## Hard nos
+## Workflow
+
+1. **Start demo (2 min)** or upload CSV  
+2. Review import summary + ranked queue (opportunity × reachability)  
+3. Build this week’s callable list  
+4. **Call mode** (one card, log outcomes)  
+5. Export durable CSV  
+
+## Product judgment
 
 - No continuous CRM / email access  
 - No auto-send  
-- No invented certainty without row evidence  
+- Silence buckets: safe reopen / handle with care / do not cold-call  
+- Scores cite row evidence or ask for review  
+- Demo eval precision@10 vs recency / random  
 
 ## Develop
 
@@ -18,14 +28,6 @@ Rowan Round 3 case prototype: **immediately monetizable** reactivation workbench
 npm install
 npm run dev
 ```
-
-## Panel path
-
-1. Open app → **Load synthetic 120-prospect book**  
-2. Filter / inspect evidence + risks  
-3. **Select top 10** → **Create this week’s campaign**  
-4. Edit talk tracks, log outcomes, **Export campaign CSV**  
-5. Read **/memo**
 
 ## Stack
 
