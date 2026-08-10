@@ -13,6 +13,7 @@ import {
   buildWhyCallSupport,
   countTags,
   extractInsights,
+  mergeTags,
   type InsightTag,
 } from "./insightTags";
 import { daysSince } from "./rankDays";
@@ -70,7 +71,7 @@ export function rankProspects(
   const learned = learnWeights(outcomes, prospects);
 
   const ranked = prospects.map((p) => {
-    const tags = extractInsights(p);
+    const tags = mergeTags(extractInsights(p), p.enrichmentTags);
     const reasons: Evidence[] = [];
     const risks: Evidence[] = [];
     let opportunity = 40;
@@ -151,8 +152,8 @@ export function rankProspects(
     else if (score >= 72 && reachability >= 55) tier = "hot";
     else if (score < 48 || reachability < 35) tier = "thin";
 
-    const whyCall = buildWhyCall(p, tags);
-    const whySupport = buildWhyCallSupport(p, tags);
+    const whyCall = p.whyCallOverride?.trim() || buildWhyCall(p, tags);
+    const whySupport = p.whySupportOverride?.trim() || buildWhyCallSupport(p, tags);
     const brief = [
       `Call because: ${whyCall}`,
       whySupport ? whySupport : null,

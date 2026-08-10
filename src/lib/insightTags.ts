@@ -25,7 +25,8 @@ export type InsightTagId =
   | "approach_caution";
 
 export type InsightTag = {
-  id: InsightTagId;
+  /** Known system ids or custom slug from the advisor's allowed vocabulary. */
+  id: InsightTagId | string;
   label: string;
   kind: InsightKind;
   /** Short cite from the file (shown under the tag / in why-call). */
@@ -191,7 +192,7 @@ export function extractInsights(p: Prospect): InsightTag[] {
   }
 
   // Dedupe by id, keep first cite
-  const seen = new Set<InsightTagId>();
+  const seen = new Set<string>();
   return out.filter((t) => {
     if (seen.has(t.id)) return false;
     seen.add(t.id);
@@ -241,21 +242,34 @@ export function buildWhyCallSupport(p: Prospect, tags: InsightTag[]): string {
   return bits.slice(0, 3).join(" · ");
 }
 
-export function countTags(tagLists: InsightTag[][]): { id: InsightTagId; label: string; count: number; kind: InsightKind }[] {
-  const counts = new Map<InsightTagId, number>();
+export function countTags(
+  tagLists: InsightTag[][],
+): { id: string; label: string; count: number; kind: InsightKind }[] {
+  const counts = new Map<string, { count: number; label: string; kind: InsightKind }>();
   for (const list of tagLists) {
     for (const t of list) {
-      counts.set(t.id, (counts.get(t.id) ?? 0) + 1);
+      const prev = counts.get(t.id);
+      if (prev) prev.count += 1;
+      else counts.set(t.id, { count: 1, label: t.label, kind: t.kind });
     }
   }
   return [...counts.entries()]
-    .map(([id, count]) => ({
+    .map(([id, meta]) => ({
       id,
-      count,
-      label: INSIGHT_META[id].label,
-      kind: INSIGHT_META[id].kind,
+      count: meta.count,
+      label: INSIGHT_META[id as InsightTagId]?.label ?? meta.label,
+      kind: INSIGHT_META[id as InsightTagId]?.kind ?? meta.kind,
     }))
     .sort((a, b) => b.count - a.count);
+}
+
+/** Merge rule tags with enrichment tags; enrichment wins on same id. */
+export function mergeTags(base: InsightTag[], enrichment?: InsightTag[]): InsightTag[] {
+  if (!enrichment?.length) return base;
+  const byId = new Map<string, InsightTag>();
+  for (const t of base) byId.set(t.id, t);
+  for (const t of enrichment) byId.set(t.id, t);
+  return [...byId.values()];
 }
 
 /** Tags useful as filters in the weekly list (opportunity + key risks). */

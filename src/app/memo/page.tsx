@@ -79,7 +79,7 @@ export default function MemoPage() {
         <strong>Buyer:</strong> independent IA / solo broker with buying authority.{" "}
         <strong>Instead of:</strong> manual cherry-picking, $1.5k/mo appointment
         setters (A stopped), one-off digitization projects (J).{" "}
-        <strong>Price:</strong> $299/mo or $1,500 cleanup sprint + $99/mo.{" "}
+        <strong>Price:</strong> $499 one-time sprint (one book/week) or $99/mo unlimited.{" "}
         <strong>Why purchase now:</strong> completes a revenue-linked weekly workflow
         from files they already have, without hostage-taking integrations.
       </p>

@@ -7,39 +7,30 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 **Memo:** https://reactivation-desk.vercel.app/memo  
 **Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv
 
-Meeting import demo: generate a local CRM export with `npm run generate:meeting-csv`, then use **Upload CSV** (do not serve it from the site).
+## What it does
 
-## Guided funnel
+Turn a messy prospect export into a finishable weekly call list:
 
-1. **Import** — sample book or CSV  
-2. **Diagnosis** — callable / careful / off-limits + portfolio patterns  
-3. **Deep analysis (opt-in)** — structured facts, timeline, contradictions, confidence, next action  
-4. **This week** — diversified capacity-aware list + excluded drawer  
-5. **Call** — one card, discovery prep, optional cited public evidence, hard stops  
-6. **Wrap** — export durable week report  
+1. **Unlock** — one-time sprint or unlimited subscription (promo codes skip payment in the prototype)
+2. **Import** — sample book or CSV, with a controlled tag vocabulary AI must respect
+3. **Ready** — see callable / careful / off-limits; optionally improve reasons & tags with AI
+4. **This week** — short capacity-aware list with cited “call because” lines
+5. **Call** — one card at a time; paste human or AI-notetaker notes to update the file
+6. **Wrap** — export durable week outcomes
 
-Full-book rankings are optional under **Full book**.
+## Monetization (prototype)
 
-## Ranking Lab
+| Plan | Price | Access |
+|---|---:|---|
+| Sprint | $499 | One book / one focused week |
+| Unlimited | $99/mo | Import as often as you want |
+| Promo | — | `DEMO` / `ROWAN` → sprint · `UNLIMITED` / `ADVISOR` → subscription |
 
-Internal experiment route: https://reactivation-desk.vercel.app/compare
-
-- Compare **rules** vs three AI ranking policies on the same shortlist (up to 50 eligible records)
-- Optional **challenge set** with independent labels (keyword misses, timing traps, consent conflicts)
-- Blind judging, scorecard, optional apply-winner-as-week
-- Main product at `/` still works with any imported book
+Checkout is simulated in-browser for the assignment demo.
 
 ## Differentiator
 
-Rules own safety · AI must cite the file · public evidence is review-only · no CRM hostage · no auto-send
-
-## AI architecture
-
-- Deterministic analysis runs locally for every row.
-- Opt-in deep analysis sends only the top 25 rows directly to OpenAI.
-- Extracted facts, timelines, contradictions, and next-action evidence must match an exact source quote.
-- Optional web refresh searches public business evidence for one contact at a time; it never changes hard stops automatically.
-- Set `OPENAI_ANALYSIS_MODEL` / `OPENAI_WEB_MODEL` to override the default model.
+Rules own safety · AI cites the file · tags stay under advisor control · notes compound over time · no CRM hostage · no auto-send
 
 ## Develop
 
@@ -47,3 +38,5 @@ Rules own safety · AI must cite the file · public evidence is review-only · n
 npm install
 npm run dev
 ```
+
+Set `OPENAI_API_KEY` for AI import enrichment and note updates. Override model with `OPENAI_ANALYSIS_MODEL` (default `gpt-4.1-mini`).

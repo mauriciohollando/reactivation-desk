@@ -24,6 +24,11 @@ export type Prospect = {
   estimatedValue?: string;
   linkedin?: string;
   raw: Record<string, string>;
+  /** AI/human enrichment tags (filtered to the allowed import vocabulary). */
+  enrichmentTags?: import("./insightTags").InsightTag[];
+  /** Prefer this commercial reason when AI wrote a grounded why-call. */
+  whyCallOverride?: string;
+  whySupportOverride?: string;
 };
 
 export type Evidence = {

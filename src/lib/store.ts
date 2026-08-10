@@ -2,21 +2,28 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { buildDemoAdvisorBook } from "./demoBook";
-import type { InsightTagId } from "./insightTags";
 import {
-  analyzeBookLocally,
-  balancedCallable,
-} from "./analysisEngine";
-import type {
-  ProspectAnalysis,
-  WebEvidencePacket,
-} from "./analysisTypes";
+  canUseDesk,
+  emptyAccess,
+  resolvePromo,
+  type AccessPlan,
+  type AccessState,
+} from "./access";
+import { buildDemoAdvisorBook } from "./demoBook";
+import { analyzeBookLocally, balancedCallable } from "./analysisEngine";
+import type { ProspectAnalysis, WebEvidencePacket } from "./analysisTypes";
+import type { InsightTag } from "./insightTags";
 import {
   buildImportSummary,
   mergeProspects,
   rankProspects,
 } from "./rank";
+import {
+  TAG_PRESETS,
+  slugTag,
+  uniqueAllowedTags,
+  type AllowedTag,
+} from "./tagPresets";
 import type {
   Campaign,
   ImportSummary,
@@ -26,6 +33,13 @@ import type {
   WeekBudget,
   WizardStep,
 } from "./types";
+
+type EnrichmentRow = {
+  prospectId: string;
+  whyCall: string;
+  whySupport: string;
+  tags: InsightTag[];
+};
 
 type State = {
   prospects: Prospect[];
@@ -45,18 +59,30 @@ type State = {
   analysisStatus: "ready" | "running" | "complete" | "error";
   analysisError: string | null;
   aiAnalyzedCount: number;
-  /** Analysis tags used to focus the week list (OR match). */
-  tagFilters: InsightTagId[];
+  tagFilters: string[];
+  allowedTags: AllowedTag[];
+  tagPresetId: string;
+  access: AccessState;
+  enrichStatus: "idle" | "running" | "complete" | "error";
+  enrichError: string | null;
+  noteStatus: "idle" | "running" | "error";
+  noteError: string | null;
   loadDemoBook: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
+  setTagPreset: (presetId: string) => void;
+  setAllowedTags: (tags: AllowedTag[]) => void;
+  toggleAllowedTag: (id: string) => void;
+  addCustomTag: (label: string) => void;
+  unlockAccess: (plan: AccessPlan, promoUsed?: string | null) => boolean;
+  unlockWithPromo: (code: string) => { ok: boolean; error?: string };
   toggleSelect: (id: string) => void;
-  toggleTagFilter: (id: InsightTagId) => void;
+  toggleTagFilter: (id: string) => void;
   clearTagFilters: () => void;
+  enrichImportedBook: (count?: number) => Promise<void>;
   deepenTopProspects: (count?: number) => Promise<void>;
+  appendProspectNote: (id: string, noteText: string) => Promise<boolean>;
   refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (n?: WeekBudget) => void;
-  /** Apply an Experiment Lab pick list as this week's campaign without changing the ranker. */
-  applyExperimentWeek: (prospectIds: string[], label: string) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
   setTalkEdit: (id: string, text: string) => void;
@@ -70,8 +96,14 @@ type State = {
   resetAll: () => void;
 };
 
-function applyBook(prospects: Prospect[], sourceLabel: string) {
+const defaultPreset = TAG_PRESETS[0]!;
+
+function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessState) {
   const ranked = rankProspects(prospects, {});
+  const nextAccess =
+    access.plan === "sprint" && canUseDesk(access)
+      ? { ...access, sprintBooksUsed: access.sprintBooksUsed + 1 }
+      : access;
   return {
     prospects,
     sourceLabel,
@@ -81,14 +113,19 @@ function applyBook(prospects: Prospect[], sourceLabel: string) {
     outcomes: {} as Record<string, Outcome>,
     talkEdits: {} as Record<string, string>,
     reasonHeld: {} as Record<string, "yes" | "stale" | "">,
-    tagFilters: [] as InsightTagId[],
+    tagFilters: [] as string[],
     analyses: analyzeBookLocally(ranked),
     webEvidence: {} as Record<string, WebEvidencePacket>,
     analysisStatus: "ready" as const,
     analysisError: null as string | null,
     aiAnalyzedCount: 0,
+    enrichStatus: "idle" as const,
+    enrichError: null as string | null,
+    noteStatus: "idle" as const,
+    noteError: null as string | null,
     step: "diagnose" as WizardStep,
     callIndex: 0,
+    access: nextAccess,
   };
 }
 
@@ -113,23 +150,97 @@ export const useDesk = create<State>()(
       analysisStatus: "ready",
       analysisError: null,
       aiAnalyzedCount: 0,
+      allowedTags: defaultPreset.tags,
+      tagPresetId: defaultPreset.id,
+      access: emptyAccess(),
+      enrichStatus: "idle",
+      enrichError: null,
+      noteStatus: "idle",
+      noteError: null,
       loadDemoBook: () => {
+        const access = get().access;
+        if (!canUseDesk(access) && access.plan !== "none") {
+          set({
+            analysisError:
+              "Sprint already used. Unlock subscription for another book, or enter a promo code.",
+          });
+          return;
+        }
+        if (!canUseDesk(access) && access.plan === "none") {
+          set({ step: "import" });
+          return;
+        }
         set({
           ...applyBook(
             buildDemoAdvisorBook(),
-            "Sample advisor book (disclosed synthetic, Advisor A-like export)",
+            "Sample advisor book",
+            access,
           ),
           weekBudget: 10,
         });
       },
-      loadProspects: (prospects, sourceLabel) =>
-        set({ ...applyBook(prospects, sourceLabel) }),
+      loadProspects: (prospects, sourceLabel) => {
+        const access = get().access;
+        if (!canUseDesk(access)) {
+          set({
+            analysisError:
+              access.plan === "sprint"
+                ? "Sprint already used. Switch to subscription or enter a promo code."
+                : "Unlock a sprint or subscription before importing.",
+            step: "import",
+          });
+          return;
+        }
+        set({ ...applyBook(prospects, sourceLabel, access) });
+      },
+      setTagPreset: (presetId) => {
+        const preset = TAG_PRESETS.find((p) => p.id === presetId) ?? defaultPreset;
+        set({ tagPresetId: preset.id, allowedTags: preset.tags });
+      },
+      setAllowedTags: (tags) => set({ allowedTags: uniqueAllowedTags(tags) }),
+      toggleAllowedTag: (id) => {
+        const cur = get().allowedTags;
+        if (cur.some((t) => t.id === id)) {
+          set({ allowedTags: cur.filter((t) => t.id !== id) });
+          return;
+        }
+        const fromPreset = TAG_PRESETS.flatMap((p) => p.tags).find((t) => t.id === id);
+        if (fromPreset) set({ allowedTags: uniqueAllowedTags([...cur, fromPreset]) });
+      },
+      addCustomTag: (label) => {
+        const trimmed = label.trim();
+        if (!trimmed) return;
+        const id = slugTag(trimmed);
+        set({
+          allowedTags: uniqueAllowedTags([
+            ...get().allowedTags,
+            { id, label: trimmed, kind: "opportunity" },
+          ]),
+        });
+      },
+      unlockAccess: (plan, promoUsed = null) => {
+        if (plan === "none") return false;
+        set({
+          access: {
+            plan,
+            unlockedAt: new Date().toISOString(),
+            promoUsed,
+            sprintBooksUsed: 0,
+          },
+          analysisError: null,
+        });
+        return true;
+      },
+      unlockWithPromo: (code) => {
+        const plan = resolvePromo(code);
+        if (!plan) return { ok: false, error: "Unknown promo code." };
+        get().unlockAccess(plan, code.trim().toUpperCase());
+        return { ok: true };
+      },
       toggleSelect: (id) => {
         const cur = get().selectedIds;
         set({
-          selectedIds: cur.includes(id)
-            ? cur.filter((x) => x !== id)
-            : [...cur, id],
+          selectedIds: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
         });
       },
       toggleTagFilter: (id) => {
@@ -139,30 +250,30 @@ export const useDesk = create<State>()(
         });
       },
       clearTagFilters: () => set({ tagFilters: [] }),
-      deepenTopProspects: async (count = 25) => {
+      enrichImportedBook: async (count = 40) => {
         const ranked = get()
           .ranked()
-          .filter(
-            (p) =>
-              p.silenceBucket !== "do_not_cold_call" &&
-              Boolean(p.phone || p.email),
-          )
+          .filter((p) => p.silenceBucket !== "do_not_cold_call" && Boolean(p.phone || p.email))
           .slice(0, count);
         if (!ranked.length) return;
-        set({ analysisStatus: "running", analysisError: null });
+        const allowedTags = get().allowedTags;
+        if (!allowedTags.length) {
+          set({ enrichStatus: "error", enrichError: "Select at least one allowed tag." });
+          return;
+        }
+        set({ enrichStatus: "running", enrichError: null });
 
         const batches: RankedProspect[][] = [];
-        for (let i = 0; i < ranked.length; i += 5) {
-          batches.push(ranked.slice(i, i + 5));
-        }
+        for (let i = 0; i < ranked.length; i += 8) batches.push(ranked.slice(i, i + 8));
 
         try {
           const results = await Promise.allSettled(
             batches.map(async (batch) => {
-              const response = await fetch("/api/analyze", {
+              const response = await fetch("/api/enrich-import", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
+                  allowedTags,
                   prospects: batch.map((p) => ({
                     id: p.id,
                     name: p.name,
@@ -179,60 +290,156 @@ export const useDesk = create<State>()(
                 }),
               });
               if (!response.ok) {
-                const body = (await response.json().catch(() => ({}))) as {
-                  error?: string;
-                };
-                throw new Error(body.error ?? `Analysis failed (${response.status})`);
+                const body = (await response.json().catch(() => ({}))) as { error?: string };
+                throw new Error(body.error ?? `Enrichment failed (${response.status})`);
               }
-              return (await response.json()) as {
-                analyses: Omit<ProspectAnalysis, "relationships">[];
-              };
+              return (await response.json()) as { enrichments: EnrichmentRow[] };
             }),
           );
 
-          const responses = results
+          const rows = results
             .filter(
-              (
-                result,
-              ): result is PromiseFulfilledResult<{
-                analyses: Omit<ProspectAnalysis, "relationships">[];
-              }> => result.status === "fulfilled",
+              (r): r is PromiseFulfilledResult<{ enrichments: EnrichmentRow[] }> =>
+                r.status === "fulfilled",
             )
-            .map((result) => result.value);
-          const failures = results.filter((result) => result.status === "rejected");
-          if (!responses.length) {
+            .flatMap((r) => r.value.enrichments);
+          const failures = results.filter((r) => r.status === "rejected");
+          if (!rows.length) {
             const first = failures[0] as PromiseRejectedResult | undefined;
             throw first?.reason instanceof Error
               ? first.reason
-              : new Error("All AI analysis batches failed.");
+              : new Error("AI enrichment failed.");
           }
 
-          const next = { ...get().analyses };
-          for (const response of responses) {
-            for (const analysis of response.analyses) {
-              const local = next[analysis.prospectId];
-              next[analysis.prospectId] = {
-                ...analysis,
-                relationships: local?.relationships ?? [],
-              };
-            }
-          }
+          const byId = new Map(rows.map((r) => [r.prospectId, r]));
+          const prospects = get().prospects.map((p) => {
+            const row = byId.get(p.id);
+            if (!row) return p;
+            return {
+              ...p,
+              enrichmentTags: row.tags,
+              whyCallOverride: row.whyCall,
+              whySupportOverride: row.whySupport,
+            };
+          });
+          const rankedNext = rankProspects(prospects, get().outcomes);
           set({
-            analyses: next,
-            analysisStatus: "complete",
-            aiAnalyzedCount: Object.values(next).filter((a) => a.mode === "ai").length,
-            analysisError: failures.length
-              ? `${failures.length} analysis batch${failures.length > 1 ? "es" : ""} failed; successful results were kept.`
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            analyses: analyzeBookLocally(rankedNext),
+            enrichStatus: "complete",
+            enrichError: failures.length
+              ? `${failures.length} batch${failures.length > 1 ? "es" : ""} failed; kept successful rows.`
               : null,
+            aiAnalyzedCount: rows.length,
           });
         } catch (error) {
           set({
-            analysisStatus: "error",
-            analysisError:
+            enrichStatus: "error",
+            enrichError:
               error instanceof Error
                 ? error.message
-                : "AI analysis failed. Local analysis remains available.",
+                : "AI enrichment failed. Local ranking remains available.",
           });
+        }
+      },
+      deepenTopProspects: async (count = 25) => {
+        // Keep for compatibility; route through import enrichment.
+        await get().enrichImportedBook(count);
+      },
+      appendProspectNote: async (id, noteText) => {
+        const prospect = get().prospects.find((p) => p.id === id);
+        if (!prospect) return false;
+        const text = noteText.trim();
+        if (!text) return false;
+        const allowedTags = get().allowedTags;
+        set({ noteStatus: "running", noteError: null });
+        try {
+          const response = await fetch("/api/enrich-note", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              allowedTags,
+              noteText: text,
+              prospect: {
+                id: prospect.id,
+                name: prospect.name,
+                company: prospect.company,
+                title: prospect.title,
+                segment: prospect.segment,
+                source: prospect.source,
+                lastTouch: prospect.lastTouch,
+                notes: prospect.notes,
+                estimatedValue: prospect.estimatedValue,
+                phone: prospect.phone,
+                email: prospect.email,
+              },
+            }),
+          });
+          const body = (await response.json()) as {
+            appendedNote?: string;
+            whyCall?: string;
+            whySupport?: string;
+            tags?: InsightTag[];
+            fieldUpdates?: Partial<Prospect>;
+            error?: string;
+          };
+          if (!response.ok) throw new Error(body.error ?? "Note update failed");
+
+          const stamp = new Date().toISOString().slice(0, 10);
+          const appended = body.appendedNote?.trim() || text;
+          const nextNotes = [prospect.notes?.trim(), `[${stamp}] ${appended}`]
+            .filter(Boolean)
+            .join("\n\n");
+          const updates = body.fieldUpdates ?? {};
+          const prospects = get().prospects.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  notes: nextNotes,
+                  company: updates.company?.trim() || p.company,
+                  title: updates.title?.trim() || p.title,
+                  estimatedValue: updates.estimatedValue?.trim() || p.estimatedValue,
+                  lastTouch: updates.lastTouch?.trim() || stamp,
+                  phone: updates.phone?.trim() || p.phone,
+                  email: updates.email?.trim() || p.email,
+                  enrichmentTags: body.tags ?? p.enrichmentTags,
+                  whyCallOverride: body.whyCall?.trim() || p.whyCallOverride,
+                  whySupportOverride: body.whySupport?.trim() || p.whySupportOverride,
+                }
+              : p,
+          );
+          const rankedNext = rankProspects(prospects, get().outcomes);
+          set({
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            analyses: analyzeBookLocally(rankedNext),
+            noteStatus: "idle",
+            noteError: null,
+          });
+          return true;
+        } catch (error) {
+          // Fallback: append raw note without AI.
+          const stamp = new Date().toISOString().slice(0, 10);
+          const prospects = get().prospects.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  notes: [p.notes?.trim(), `[${stamp}] ${text}`].filter(Boolean).join("\n\n"),
+                  lastTouch: stamp,
+                }
+              : p,
+          );
+          set({
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            noteStatus: "error",
+            noteError:
+              error instanceof Error
+                ? `${error.message} Note was saved without AI enrichment.`
+                : "Note saved without AI enrichment.",
+          });
+          return true;
         }
       },
       refreshPublicEvidence: async (id) => {
@@ -276,9 +483,7 @@ export const useDesk = create<State>()(
           set({
             analysisStatus: "error",
             analysisError:
-              error instanceof Error
-                ? error.message
-                : "Public evidence refresh failed.",
+              error instanceof Error ? error.message : "Public evidence refresh failed.",
           });
         }
       },
@@ -311,25 +516,6 @@ export const useDesk = create<State>()(
           campaign: {
             id: `camp-${Date.now()}`,
             name: `Week of ${new Date().toISOString().slice(0, 10)}`,
-            createdAt: new Date().toISOString(),
-            prospectIds: top,
-          },
-          step: "plan",
-          callIndex: 0,
-        });
-      },
-      applyExperimentWeek: (prospectIds, label) => {
-        const known = new Set(get().prospects.map((p) => p.id));
-        const top = prospectIds.filter((id) => known.has(id)).slice(0, 20);
-        if (!top.length) return;
-        const weekBudget: WeekBudget =
-          top.length <= 5 ? 5 : top.length <= 10 ? 10 : 20;
-        set({
-          weekBudget,
-          selectedIds: top,
-          campaign: {
-            id: `camp-exp-${Date.now()}`,
-            name: `Lab pick · ${label} · ${new Date().toISOString().slice(0, 10)}`,
             createdAt: new Date().toISOString(),
             prospectIds: top,
           },
@@ -391,15 +577,24 @@ export const useDesk = create<State>()(
           analysisStatus: "ready",
           analysisError: null,
           aiAnalyzedCount: 0,
+          enrichStatus: "idle",
+          enrichError: null,
+          noteStatus: "idle",
+          noteError: null,
+          // Keep access + tag vocabulary across books.
         }),
     }),
     {
-      name: "reactivation-desk-v5",
+      name: "reactivation-desk-v6",
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<State>),
         analysisStatus: "ready",
         analysisError: null,
+        enrichStatus: "idle",
+        enrichError: null,
+        noteStatus: "idle",
+        noteError: null,
       }),
     },
   ),

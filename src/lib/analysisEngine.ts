@@ -396,7 +396,7 @@ export function buildBookPatterns(
 }
 
 function hasAny(p: RankedProspect, ids: InsightTagId[]) {
-  return p.tags.some((t) => ids.includes(t.id));
+  return p.tags.some((t) => ids.includes(t.id as InsightTagId));
 }
 
 /** Diversifies a week without allowing weaker records to jump far ahead. */
