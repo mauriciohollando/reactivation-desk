@@ -330,6 +330,33 @@ export function DeskApp() {
           >
             Curation
           </button>
+          <button
+            type="button"
+            className="btn ghost sm"
+            title="Clear plan, curation, and all desk data"
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "Reset everything? This clears your plan, curation profile, promo unlock, and any imported book.",
+                )
+              ) {
+                return;
+              }
+              clearAccess();
+              setThesisEditorOpen(false);
+              setPromo("");
+              setPromoError(null);
+              setPendingRows(null);
+              setPendingHeaders([]);
+              setCsvError(null);
+              setCustomTag("");
+              setCustomBudget("");
+              setShowExcluded(false);
+              setPlanFocus("sprint");
+            }}
+          >
+            Reset
+          </button>
           {prospects.length > 0 && (
             <button type="button" className="btn ghost" onClick={resetAll}>
               New book
@@ -427,12 +454,19 @@ export function DeskApp() {
                   type="button"
                   className="btn ghost sm"
                   onClick={() => {
+                    if (
+                      !window.confirm(
+                        "Reset everything? This clears your plan, curation profile, and desk data.",
+                      )
+                    ) {
+                      return;
+                    }
                     clearAccess();
                     setPromo("");
                     setPromoError(null);
                   }}
                 >
-                  Reset unlock
+                  Reset
                 </button>
               </div>
             ) : (

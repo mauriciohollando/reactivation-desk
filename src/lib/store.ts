@@ -120,7 +120,7 @@ type State = {
   addCustomTag: (label: string) => void;
   unlockAccess: (plan: AccessPlan, promoUsed?: string | null) => boolean;
   unlockWithPromo: (code: string) => { ok: boolean; error?: string };
-  /** Prototype helper — wipe paid unlock so the compare page is testable again. */
+  /** Full wipe: plan, thesis, prefs, and in-memory book (prototype / demo reset). */
   clearAccess: () => void;
   /** AI guess of practice thesis from the imported book (post-import popup). */
   guessThesisFromBook: () => Promise<boolean>;
@@ -418,12 +418,16 @@ export const useDesk = create<State>()(
           importSummary: null,
           step: "import",
           callIndex: 0,
+          weekBudget: 10,
+          preferWarm: true,
+          tagFilters: [],
           analyses: {},
           webEvidence: {},
           callPreps: {},
           analysisStatus: "ready",
           analysisError: null,
           aiAnalyzedCount: 0,
+          campaignBrief: "",
           campaignInterpretedAs: null,
           enrichStatus: "idle",
           enrichError: null,
@@ -433,10 +437,13 @@ export const useDesk = create<State>()(
           prepError: null,
           preparingIds: [],
           weekPrep: { status: "idle", done: 0, total: 0 },
+          practiceThesis: defaultPracticeThesis(),
           thesisReviewPending: false,
           bookInsights: [],
           thesisStatus: "idle",
           thesisError: null,
+          allowedTags: defaultPreset.tags,
+          tagPresetId: defaultPreset.id,
         });
       },
       guessThesisFromBook: async () => {
