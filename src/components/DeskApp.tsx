@@ -115,6 +115,7 @@ export function DeskApp() {
   const addCustomTag = useDesk((s) => s.addCustomTag);
   const unlockAccess = useDesk((s) => s.unlockAccess);
   const unlockWithPromo = useDesk((s) => s.unlockWithPromo);
+  const clearAccess = useDesk((s) => s.clearAccess);
   const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
   const clearTagFilters = useDesk((s) => s.clearTagFilters);
   const campaignBrief = useDesk((s) => s.campaignBrief);
@@ -373,6 +374,17 @@ export function DeskApp() {
                     Compare Unlimited
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => {
+                    clearAccess();
+                    setPromo("");
+                    setPromoError(null);
+                  }}
+                >
+                  Reset unlock
+                </button>
               </div>
             ) : (
               <div className="pricing-grid">

@@ -99,6 +99,8 @@ type State = {
   addCustomTag: (label: string) => void;
   unlockAccess: (plan: AccessPlan, promoUsed?: string | null) => boolean;
   unlockWithPromo: (code: string) => { ok: boolean; error?: string };
+  /** Prototype helper — wipe paid unlock so the compare page is testable again. */
+  clearAccess: () => void;
   toggleSelect: (id: string) => void;
   toggleTagFilter: (id: string) => void;
   clearTagFilters: () => void;
@@ -331,6 +333,37 @@ export const useDesk = create<State>()(
         if (!plan) return { ok: false, error: "Unknown promo code." };
         get().unlockAccess(plan, code.trim().toUpperCase());
         return { ok: true };
+      },
+      clearAccess: () => {
+        prefetchGeneration += 1;
+        set({
+          access: emptyAccess(),
+          prospects: [],
+          outcomes: {},
+          talkEdits: {},
+          reasonHeld: {},
+          campaign: null,
+          selectedIds: [],
+          sourceLabel: "none",
+          importSummary: null,
+          step: "import",
+          callIndex: 0,
+          analyses: {},
+          webEvidence: {},
+          callPreps: {},
+          analysisStatus: "ready",
+          analysisError: null,
+          aiAnalyzedCount: 0,
+          campaignInterpretedAs: null,
+          enrichStatus: "idle",
+          enrichError: null,
+          noteStatus: "idle",
+          noteError: null,
+          prepStatus: "idle",
+          prepError: null,
+          preparingIds: [],
+          weekPrep: { status: "idle", done: 0, total: 0 },
+        });
       },
       toggleSelect: (id) => {
         const cur = get().selectedIds;
@@ -1241,7 +1274,7 @@ export const useDesk = create<State>()(
     {
       // Only lightweight prefs survive reloads. Full books + AI packets stay in memory
       // so large CSVs (200–500+ rows) do not blow past localStorage quota (~5MB).
-      name: "reactivation-desk-v8",
+      name: "reactivation-desk-v9",
       partialize: (state) => ({
         access: state.access,
         allowedTags: state.allowedTags,
@@ -1295,6 +1328,7 @@ export const useDesk = create<State>()(
                 "reactivation-desk-v5",
                 "reactivation-desk-v6",
                 "reactivation-desk-v7",
+                "reactivation-desk-v8",
                 key,
               ]) {
                 try {
@@ -1353,6 +1387,7 @@ export const useDesk = create<State>()(
           "reactivation-desk-v5",
           "reactivation-desk-v6",
           "reactivation-desk-v7",
+          "reactivation-desk-v8",
         ]) {
           try {
             localStorage.removeItem(key);
