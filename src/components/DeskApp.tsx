@@ -24,9 +24,31 @@ import type {
   Outcome,
   RankedProspect,
   SilenceBucket,
-  WeekBudget,
   WizardStep,
 } from "@/lib/types";
+import {
+  WEEK_BUDGET_CHIPS,
+  WEEK_BUDGET_MAX,
+  WEEK_BUDGET_MIN,
+  clampWeekBudget,
+  countOutcomes,
+  leftoversExportRows,
+  partitionWeekOutcomes,
+  rankedExportRows,
+  weekExportRows,
+} from "@/lib/weekFlow";
+
+function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
+  if (!rows.length) return;
+  const csv = Papa.unparse(rows);
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const FIELD_LABELS: Record<FieldKey, string> = {
   name: "Name",
@@ -92,6 +114,7 @@ export function DeskApp() {
   const campaignInterpretedAs = useDesk((s) => s.campaignInterpretedAs);
   const setCampaignBrief = useDesk((s) => s.setCampaignBrief);
   const buildWeekWithAi = useDesk((s) => s.buildWeekWithAi);
+  const buildNextWeek = useDesk((s) => s.buildNextWeek);
   const openCall = useDesk((s) => s.openCall);
   const prepareCall = useDesk((s) => s.prepareCall);
   const logFreeformOutcome = useDesk((s) => s.logFreeformOutcome);
@@ -112,6 +135,8 @@ export function DeskApp() {
   const [promo, setPromo] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [customBudget, setCustomBudget] = useState("");
+  const [nextWeekBusy, setNextWeekBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const canImport = canUseDesk(access);
@@ -146,11 +171,22 @@ export function DeskApp() {
     [campaignRows, outcomes],
   );
   const contacted = alreadyLogged.length;
+  const weekPartitions = useMemo(
+    () => partitionWeekOutcomes(campaignRows, outcomes),
+    [campaignRows, outcomes],
+  );
+  const outcomeCounts = useMemo(
+    () => countOutcomes(campaignRows, outcomes),
+    [campaignRows, outcomes],
+  );
   const blockCalling =
     !!importSummary &&
     importSummary.callableThisWeek === 0 &&
     importSummary.total > 0;
   const callCard = campaignRows[callIndex] ?? null;
+  const budgetIsCustom = !WEEK_BUDGET_CHIPS.includes(
+    weekBudget as (typeof WEEK_BUDGET_CHIPS)[number],
+  );
 
   const parseCsvText = (text: string, label: string) => {
     setCsvError(null);
@@ -197,25 +233,43 @@ export function DeskApp() {
 
   const exportCampaign = () => {
     if (!campaign) return;
-    const rows = campaignRows.map((p) => ({
-      name: p.name,
-      company: p.company ?? "",
-      phone: p.phone ?? "",
-      email: p.email ?? "",
-      outcome: outcomes[p.id] ?? p.outcome,
-      why_call: p.whyCall,
-      tags: p.tags.map((t) => t.label).join(" | "),
-      notes: p.notes ?? "",
-      talk_track: talkEdits[p.id] ?? p.talkTrack,
-    }));
-    const csv = Papa.unparse(rows);
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${campaign.name.replace(/\s+/g, "-")}-outcomes.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `${campaign.name.replace(/\s+/g, "-")}-outcomes.csv`,
+      weekExportRows(campaignRows, outcomes, talkEdits),
+    );
+  };
+
+  const exportRankedQueue = () => {
+    const callable = rankedLive.filter(
+      (p) =>
+        p.silenceBucket !== "do_not_cold_call" && Boolean(p.phone || p.email),
+    );
+    downloadCsv(
+      `ranked-queue-${new Date().toISOString().slice(0, 10)}.csv`,
+      rankedExportRows(callable, outcomes),
+    );
+  };
+
+  const exportLeftovers = () => {
+    downloadCsv(
+      `next-up-${new Date().toISOString().slice(0, 10)}.csv`,
+      leftoversExportRows(
+        rankedLive,
+        outcomes,
+        campaign?.prospectIds ?? [],
+      ),
+    );
+  };
+
+  const startNextWeek = async (
+    mode: "leftovers" | "same_theme" | "fresh",
+  ) => {
+    setNextWeekBusy(true);
+    try {
+      await buildNextWeek(mode);
+    } finally {
+      setNextWeekBusy(false);
+    }
   };
 
   return (
@@ -479,18 +533,43 @@ export function DeskApp() {
           <div className="budget-row">
             <span className="block-label">Calls this week</span>
             <div className="filters">
-              {([5, 10, 20] as WeekBudget[]).map((n) => (
+              {WEEK_BUDGET_CHIPS.map((n) => (
                 <button
                   key={n}
                   type="button"
-                  className={weekBudget === n ? "chip on" : "chip"}
-                  onClick={() => setWeekBudget(n)}
+                  className={!budgetIsCustom && weekBudget === n ? "chip on" : "chip"}
+                  onClick={() => {
+                    setCustomBudget("");
+                    setWeekBudget(n);
+                  }}
                   disabled={enrichStatus === "running"}
                 >
                   {n}
                 </button>
               ))}
+              <label className="custom-budget">
+                <span>Custom</span>
+                <input
+                  type="number"
+                  min={WEEK_BUDGET_MIN}
+                  max={WEEK_BUDGET_MAX}
+                  placeholder="12"
+                  value={budgetIsCustom ? String(weekBudget) : customBudget}
+                  disabled={enrichStatus === "running"}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    setCustomBudget(raw);
+                    const n = Number(raw);
+                    if (Number.isFinite(n) && n >= WEEK_BUDGET_MIN) {
+                      setWeekBudget(clampWeekBudget(n));
+                    }
+                  }}
+                />
+              </label>
             </div>
+            <p className="muted tiny budget-hint">
+              Most advisors finish 8–12. Cap is {WEEK_BUDGET_MAX} so the week stays finishable.
+            </p>
             <label className="check-inline">
               <input
                 type="checkbox"
@@ -554,8 +633,17 @@ export function DeskApp() {
                   ? `Build ${weekBudget}-call week from brief`
                   : `Build ${weekBudget}-call week with AI`}
               </button>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={!rankedLive.length}
+                onClick={exportRankedQueue}
+              >
+                Download ranked CSV
+              </button>
               <p className="muted tiny">
-                Hard stops stay rule-based. AI only uses your file and allowed tags.
+                Hard stops stay rule-based. AI only uses your file and allowed tags. Ranked CSV is
+                the full callable queue in order — not only this week.
               </p>
             </div>
           )}
@@ -580,11 +668,21 @@ export function DeskApp() {
                   : `${campaignRows.length} in this week · call anyone in any order`}
               </p>
             </div>
-            {contacted >= campaignRows.length && campaignRows.length > 0 && (
-              <button type="button" className="btn" onClick={() => setStep("wrap")}>
-                Wrap week
+            <div className="plan-header-actions">
+              <button
+                type="button"
+                className="btn ghost sm"
+                disabled={!campaignRows.length}
+                onClick={exportCampaign}
+              >
+                Download week
               </button>
-            )}
+              {campaignRows.length > 0 && (
+                <button type="button" className="btn" onClick={() => setStep("wrap")}>
+                  Wrap week
+                </button>
+              )}
+            </div>
           </div>
 
           {campaignInterpretedAs && (
@@ -698,7 +796,9 @@ export function DeskApp() {
             {contacted} of {campaignRows.length} logged
           </h2>
           <p className="muted">
-            Export outcomes and keep adding notes — next week starts smarter.
+            {weekPartitions.won.length > 0
+              ? `${weekPartitions.won.length} meeting${weekPartitions.won.length === 1 ? "" : "s"} or sale${weekPartitions.won.length === 1 ? "" : "s"} from this week — keep the loop going.`
+              : "Close the week, park follow-ups, then build the next list from the same book."}
           </p>
           <div className="progress-track lg">
             <div
@@ -708,11 +808,100 @@ export function DeskApp() {
               }}
             />
           </div>
-          <div className="toolbar">
-            <button type="button" className="btn primary lg" onClick={exportCampaign}>
+
+          <div className="wrap-mix">
+            {(
+              [
+                ["meeting", "Meetings"],
+                ["sale", "Sales"],
+                ["not_now", "Follow up later"],
+                ["called", "Reached / voicemail"],
+                ["wrong_number", "Wrong number"],
+                ["do_not_contact", "Do not contact"],
+                ["queued", "Still open"],
+              ] as const
+            )
+              .filter(([key]) => (outcomeCounts[key] ?? 0) > 0)
+              .map(([key, label]) => (
+                <span key={key} className="wrap-mix-chip">
+                  <strong>{outcomeCounts[key]}</strong> {label}
+                </span>
+              ))}
+          </div>
+
+          <div className="wrap-piles">
+            <WrapPile
+              title="Won / next action"
+              empty="No meetings or sales logged yet."
+              people={weekPartitions.won}
+              outcomes={outcomes}
+            />
+            <WrapPile
+              title="Park for later"
+              empty="No follow-ups parked."
+              people={[...weekPartitions.park, ...weekPartitions.open]}
+              outcomes={outcomes}
+            />
+            <WrapPile
+              title="Remove / careful"
+              empty="No removals this week."
+              people={weekPartitions.remove}
+              outcomes={outcomes}
+            />
+          </div>
+
+          <div className="next-week-panel">
+            <span className="block-label">Build next week</span>
+            <p className="muted tiny">
+              Same book. Skips sales and do-not-contact. Re-queues follow-ups at the top.
+            </p>
+            <div className="toolbar wrap-next-actions">
+              <button
+                type="button"
+                className="btn primary lg"
+                disabled={nextWeekBusy || enrichStatus === "running"}
+                onClick={() => void startNextWeek("leftovers")}
+              >
+                {nextWeekBusy ? "Building…" : "Work the leftovers"}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={nextWeekBusy || enrichStatus === "running"}
+                onClick={() => void startNextWeek("same_theme")}
+              >
+                Same theme
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={nextWeekBusy || enrichStatus === "running"}
+                onClick={() => void startNextWeek("fresh")}
+              >
+                Fresh ranking
+              </button>
+            </div>
+            {campaignBrief.trim() && (
+              <p className="muted tiny">
+                Same theme reuses: “{campaignBrief.trim()}”
+              </p>
+            )}
+            {(enrichError || analysisError) && (
+              <p className="error">{enrichError || analysisError}</p>
+            )}
+          </div>
+
+          <div className="toolbar wrap-export-actions">
+            <button type="button" className="btn" onClick={exportCampaign}>
               Download week CSV
             </button>
-            <button type="button" className="btn" onClick={() => setStep("plan")}>
+            <button type="button" className="btn" onClick={exportLeftovers}>
+              Download next-up CSV
+            </button>
+            <button type="button" className="btn ghost" onClick={exportRankedQueue}>
+              Download ranked CSV
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setStep("plan")}>
               Back to list
             </button>
             <button type="button" className="btn ghost" onClick={resetAll}>
@@ -721,8 +910,8 @@ export function DeskApp() {
           </div>
           {access.plan === "sprint" && (
             <p className="muted tiny">
-              Sprint complete. Unlock unlimited (${SUBSCRIPTION_PRICE}/mo) for the next book —
-              or use promo UNLIMITED.
+              Sprint is one book — you can keep running weeks on it. Unlock unlimited ($
+              {SUBSCRIPTION_PRICE}/mo) for the next book, or use promo UNLIMITED.
             </p>
           )}
         </section>
@@ -783,6 +972,47 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
   wrong_number: "Wrong number",
   do_not_contact: "Do not contact",
 };
+
+function WrapPile({
+  title,
+  empty,
+  people,
+  outcomes,
+}: {
+  title: string;
+  empty: string;
+  people: RankedProspect[];
+  outcomes: Record<string, Outcome>;
+}) {
+  return (
+    <div className="wrap-pile">
+      <h3>
+        {title} <em>{people.length}</em>
+      </h3>
+      {people.length === 0 ? (
+        <p className="muted tiny">{empty}</p>
+      ) : (
+        <ul>
+          {people.slice(0, 8).map((p) => {
+            const outcome = outcomes[p.id] ?? p.outcome;
+            return (
+              <li key={p.id}>
+                <strong>{p.name}</strong>
+                <span>
+                  {p.company ?? "No company"}
+                  {outcome !== "queued" ? ` · ${OUTCOME_LABELS[outcome]}` : " · Still open"}
+                </span>
+              </li>
+            );
+          })}
+          {people.length > 8 && (
+            <li className="muted tiny">+{people.length - 8} more in the CSV export</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function PlanPersonCard({
   p,

@@ -25,6 +25,12 @@ import {
   rankProspects,
 } from "./rank";
 import {
+  clampWeekBudget,
+  isTerminalOutcome,
+  orderForNextWeek,
+  type NextWeekMode,
+} from "./weekFlow";
+import {
   TAG_PRESETS,
   slugTag,
   uniqueAllowedTags,
@@ -96,9 +102,21 @@ type State = {
   prepareCall: (id: string, force?: boolean) => Promise<boolean>;
   logFreeformOutcome: (id: string, freeText: string) => Promise<boolean>;
   refreshPublicEvidence: (id: string) => Promise<void>;
-  buildWeekPlan: (n?: WeekBudget) => void;
+  buildWeekPlan: (
+    n?: WeekBudget,
+    opts?: { nextWeek?: boolean; preferLeftovers?: boolean },
+  ) => void;
   /** Enrich / curate with AI, then build the week list. */
-  buildWeekWithAi: (n?: WeekBudget) => Promise<void>;
+  buildWeekWithAi: (
+    n?: WeekBudget,
+    opts?: {
+      nextWeek?: boolean;
+      preferLeftovers?: boolean;
+      /** Override brief for this build only; "" forces default ranking. */
+      forceBrief?: string;
+    },
+  ) => Promise<void>;
+  buildNextWeek: (mode: NextWeekMode) => Promise<void>;
   openCall: (id: string) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
@@ -375,32 +393,50 @@ export const useDesk = create<State>()(
       },
       deepenTopProspects: async (count = 25) => get().enrichImportedBook(count),
       setCampaignBrief: (brief) => set({ campaignBrief: brief }),
-      buildWeekWithAi: async (n) => {
-        const budget = n ?? get().weekBudget;
-        const brief = get().campaignBrief.trim();
+      buildWeekWithAi: async (n, opts) => {
+        const budget = clampWeekBudget(n ?? get().weekBudget);
+        const nextWeek = Boolean(opts?.nextWeek);
+        const preferLeftovers = Boolean(opts?.preferLeftovers) || nextWeek;
+        const brief =
+          opts?.forceBrief !== undefined
+            ? opts.forceBrief.trim()
+            : get().campaignBrief.trim();
         if (!brief) {
           const enrichCount = Math.min(40, Math.max(budget * 3, 20));
           await get().enrichImportedBook(enrichCount);
-          get().buildWeekPlan(budget);
+          get().buildWeekPlan(budget, { nextWeek, preferLeftovers });
           return;
         }
 
         // Campaign brief path: AI curates the week from a callable shortlist.
         const preferWarm = get().preferWarm;
+        const previousWeekIds = get().campaign?.prospectIds ?? [];
+        const outcomes = get().outcomes;
         let ranked = get()
           .ranked()
-          .filter(
-            (p) =>
-              p.silenceBucket !== "do_not_cold_call" && Boolean(p.phone || p.email),
-          );
+          .filter((p) => {
+            if (p.silenceBucket === "do_not_cold_call") return false;
+            if (!p.phone && !p.email) return false;
+            if (nextWeek && isTerminalOutcome(outcomes[p.id] ?? p.outcome)) return false;
+            return true;
+          });
         if (preferWarm) {
           ranked = [
             ...ranked.filter((p) => p.silenceBucket === "safe_reopen"),
             ...ranked.filter((p) => p.silenceBucket === "handle_with_care"),
           ];
         }
+        if (preferLeftovers) {
+          ranked = orderForNextWeek(ranked, outcomes, previousWeekIds);
+        }
         // Prefer people who match the brief text before plain rank order.
-        const shortlist = shortlistForBrief(ranked, brief, 80);
+        let shortlist = shortlistForBrief(ranked, brief, 80);
+        if (preferLeftovers) {
+          const order = new Map(ranked.map((p, index) => [p.id, index]));
+          shortlist = [...shortlist].sort(
+            (a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999),
+          );
+        }
         if (!shortlist.length) {
           set({
             enrichStatus: "error",
@@ -464,6 +500,12 @@ export const useDesk = create<State>()(
           const uniquePicks = body.picks.filter((pick) => {
             if (seen.has(pick.prospectId)) return false;
             if (!get().prospects.some((p) => p.id === pick.prospectId)) return false;
+            if (
+              nextWeek &&
+              isTerminalOutcome(outcomes[pick.prospectId] ?? "queued")
+            ) {
+              return false;
+            }
             seen.add(pick.prospectId);
             return true;
           });
@@ -485,10 +527,16 @@ export const useDesk = create<State>()(
             };
           });
 
+          const nextOutcomes = { ...get().outcomes };
+          if (nextWeek) {
+            for (const id of pickIds) nextOutcomes[id] = "queued";
+          }
+
           set({
             prospects,
+            outcomes: nextOutcomes,
             importSummary: buildImportSummary(prospects),
-            analyses: analyzeBookLocally(rankProspects(prospects, get().outcomes)),
+            analyses: analyzeBookLocally(rankProspects(prospects, nextOutcomes)),
             selectedIds: pickIds,
             campaign: {
               id: `camp-${Date.now()}`,
@@ -517,6 +565,25 @@ export const useDesk = create<State>()(
                 : "AI campaign week failed. Try again or clear the prompt for the default list.",
           });
         }
+      },
+      buildNextWeek: async (mode) => {
+        const budget = clampWeekBudget(get().weekBudget);
+        if (mode === "fresh") {
+          await get().buildWeekWithAi(budget, {
+            nextWeek: true,
+            preferLeftovers: true,
+            forceBrief: "",
+          });
+          return;
+        }
+        if (mode === "same_theme") {
+          await get().buildWeekWithAi(budget, {
+            nextWeek: true,
+            preferLeftovers: true,
+          });
+          return;
+        }
+        get().buildWeekPlan(budget, { nextWeek: true, preferLeftovers: true });
       },
       openCall: (id) => {
         const campaign = get().campaign;
@@ -873,9 +940,12 @@ export const useDesk = create<State>()(
           });
         }
       },
-      buildWeekPlan: (n) => {
-        const budget = n ?? get().weekBudget;
-        let ranked = get().ranked();
+      buildWeekPlan: (n, opts) => {
+        const budget = clampWeekBudget(n ?? get().weekBudget);
+        const nextWeek = Boolean(opts?.nextWeek);
+        const preferLeftovers = Boolean(opts?.preferLeftovers) || nextWeek;
+        const previousWeekIds = get().campaign?.prospectIds ?? [];
+        const outcomes = get().outcomes;
         const preferWarm = get().preferWarm;
         const byWarmth = (list: RankedProspect[]) => {
           if (!preferWarm) return list;
@@ -885,20 +955,41 @@ export const useDesk = create<State>()(
             ...list.filter((p) => p.silenceBucket === "do_not_cold_call"),
           ];
         };
-        const filters = get().tagFilters;
-        if (filters.length) {
-          const hit = ranked.filter((p) =>
-            filters.some((f) => p.tags.some((t) => t.id === f)),
+
+        let ranked: RankedProspect[];
+        if (preferLeftovers) {
+          ranked = byWarmth(
+            orderForNextWeek(get().ranked(), outcomes, previousWeekIds),
           );
-          const miss = ranked.filter((p) => !hit.some((h) => h.id === p.id));
-          ranked = [...byWarmth(hit), ...byWarmth(miss)];
         } else {
-          ranked = byWarmth(ranked);
+          ranked = get().ranked();
+          const filters = get().tagFilters;
+          if (filters.length) {
+            const hit = ranked.filter((p) =>
+              filters.some((f) => p.tags.some((t) => t.id === f)),
+            );
+            const miss = ranked.filter((p) => !hit.some((h) => h.id === p.id));
+            ranked = [...byWarmth(hit), ...byWarmth(miss)];
+          } else {
+            ranked = byWarmth(ranked);
+          }
         }
-        const top = [
-          ...new Set(balancedCallable(ranked, get().analyses, budget).map((p) => p.id)),
-        ];
+
+        const top = preferLeftovers
+          ? [...new Set(ranked.slice(0, budget).map((p) => p.id))]
+          : [
+              ...new Set(
+                balancedCallable(ranked, get().analyses, budget).map((p) => p.id),
+              ),
+            ];
+
+        const nextOutcomes = { ...outcomes };
+        if (nextWeek) {
+          for (const id of top) nextOutcomes[id] = "queued";
+        }
+
         set({
+          outcomes: nextOutcomes,
           weekBudget: budget,
           selectedIds: top,
           campaign: {
@@ -909,6 +1000,9 @@ export const useDesk = create<State>()(
           },
           // Filters may reorder who gets into the week; do not hide week rows afterward.
           tagFilters: [],
+          campaignInterpretedAs: preferLeftovers
+            ? "Next week: follow-ups and unfinished names first, then the best remaining callable people."
+            : get().campaignInterpretedAs,
           step: "plan",
           callIndex: 0,
         });
@@ -922,7 +1016,8 @@ export const useDesk = create<State>()(
         set({ reasonHeld: { ...get().reasonHeld, [id]: v } }),
       setStep: (step) => set({ step }),
       setCallIndex: (callIndex) => set({ callIndex }),
-      setWeekBudget: (weekBudget) => set({ weekBudget }),
+      setWeekBudget: (weekBudget) =>
+        set({ weekBudget: clampWeekBudget(weekBudget) }),
       setPreferWarm: (preferWarm) => set({ preferWarm }),
       mergeDuplicatePair: (keepId, dropId) => {
         const list = get().prospects;

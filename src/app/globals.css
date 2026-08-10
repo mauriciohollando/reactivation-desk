@@ -381,6 +381,130 @@ h1 {
   margin-bottom: 1rem;
 }
 
+.plan-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.custom-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.custom-budget input {
+  width: 4.2rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.budget-hint {
+  margin: 0.35rem 0 0.15rem;
+}
+
+.wrap-mix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.85rem 0 1rem;
+}
+
+.wrap-mix-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.wrap-mix-chip strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.wrap-piles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+}
+
+.wrap-pile {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  min-height: 8rem;
+}
+
+.wrap-pile h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.wrap-pile h3 em {
+  font-style: normal;
+  color: var(--muted);
+}
+
+.wrap-pile ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wrap-pile li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.wrap-pile li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.wrap-pile li span {
+  color: var(--text-secondary);
+  font-size: 0.74rem;
+}
+
+.next-week-panel {
+  margin: 0.25rem 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #d7e6f6;
+  border-radius: var(--radius);
+  background: #f7fbff;
+}
+
+.wrap-next-actions,
+.wrap-export-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 820px) {
+  .wrap-piles {
+    grid-template-columns: 1fr;
+  }
+}
+
 .plan-list {
   display: flex;
   flex-direction: column;
@@ -2343,14 +2467,16 @@ select:focus {
 
 .build-cta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.45rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
   margin-top: 0.35rem;
 }
 
 .build-cta .tiny {
   margin: 0;
+  flex: 1 1 100%;
 }
 
 .ai-building {

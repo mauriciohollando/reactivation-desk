@@ -13,7 +13,7 @@ const allowedTagSchema = z.object({
 
 const inputSchema = z.object({
   brief: z.string().min(1).max(500),
-  budget: z.number().int().min(1).max(20),
+  budget: z.number().int().min(1).max(40),
   preferWarm: z.boolean(),
   allowedTags: z.array(allowedTagSchema).min(1).max(40),
   prospects: z
@@ -57,7 +57,7 @@ const weekSchema = z.object({
           .max(8),
       }),
     )
-    .max(20),
+    .max(40),
 });
 
 function grounded(quote: string, text: string) {

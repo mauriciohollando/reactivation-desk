@@ -89,7 +89,8 @@ export type WizardStep =
   | "wrap"
   | "review";
 
-export type WeekBudget = 5 | 10 | 20;
+/** Calls planned for one week (clamped 1–40 in the store). */
+export type WeekBudget = number;
 
 export type FieldKey =
   | "name"
