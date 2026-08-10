@@ -97,8 +97,9 @@ export function DeskApp() {
   const enrichError = useDesk((s) => s.enrichError);
   const noteStatus = useDesk((s) => s.noteStatus);
   const noteError = useDesk((s) => s.noteError);
-  const prepStatus = useDesk((s) => s.prepStatus);
   const prepError = useDesk((s) => s.prepError);
+  const preparingIds = useDesk((s) => s.preparingIds);
+  const weekPrep = useDesk((s) => s.weekPrep);
   const callPreps = useDesk((s) => s.callPreps);
   const aiAnalyzedCount = useDesk((s) => s.aiAnalyzedCount);
   const analysisError = useDesk((s) => s.analysisError);
@@ -674,6 +675,17 @@ export function DeskApp() {
                   ? `AI wrote call reasons · ${campaignRows.length} in this week · call anyone in any order`
                   : `${campaignRows.length} in this week · call anyone in any order`}
               </p>
+              {weekPrep.status === "running" && (
+                <p className="muted tiny week-prep-progress">
+                  Preparing call briefs in the background… {weekPrep.done} of{" "}
+                  {weekPrep.total} ready
+                </p>
+              )}
+              {weekPrep.status === "complete" && weekPrep.total > 0 && (
+                <p className="muted tiny week-prep-progress">
+                  Call briefs ready for this week ({weekPrep.done} of {weekPrep.total})
+                </p>
+              )}
             </div>
             <div className="plan-header-actions">
               <button
@@ -711,6 +723,15 @@ export function DeskApp() {
                 p={p}
                 index={index + 1}
                 outcome={outcomes[p.id] ?? p.outcome}
+                prepState={
+                  preparingIds.includes(p.id)
+                    ? "preparing"
+                    : callPreps[p.id]?.source === "ai"
+                      ? "ready"
+                      : callPreps[p.id]?.source === "fallback"
+                        ? "fallback"
+                        : "pending"
+                }
                 onCall={() => openCall(p.id)}
               />
             ))}
@@ -731,6 +752,15 @@ export function DeskApp() {
                   index={index + 1}
                   outcome={outcomes[p.id] ?? p.outcome}
                   logged
+                  prepState={
+                    preparingIds.includes(p.id)
+                      ? "preparing"
+                      : callPreps[p.id]?.source === "ai"
+                        ? "ready"
+                        : callPreps[p.id]?.source === "fallback"
+                          ? "fallback"
+                          : "pending"
+                  }
                   onCall={() => openCall(p.id)}
                 />
               ))}
@@ -766,7 +796,7 @@ export function DeskApp() {
         <CallMode
           p={callCard}
           prep={callPreps[callCard.id]}
-          prepBusy={prepStatus === "running"}
+          prepBusy={preparingIds.includes(callCard.id)}
           prepError={prepError}
           talk={talkEdits[callCard.id] ?? callCard.talkTrack}
           outcome={outcomes[callCard.id] ?? callCard.outcome}
@@ -1026,12 +1056,14 @@ function PlanPersonCard({
   index,
   outcome,
   logged = false,
+  prepState = "pending",
   onCall,
 }: {
   p: RankedProspect;
   index: number;
   outcome: Outcome;
   logged?: boolean;
+  prepState?: "pending" | "preparing" | "ready" | "fallback";
   onCall: () => void;
 }) {
   const aiReason = Boolean(p.whyCallOverride);
@@ -1043,6 +1075,13 @@ function PlanPersonCard({
           <h3>{p.name}</h3>
           <span className="silence-pill">{silenceLabel(p.silenceBucket)}</span>
           {aiReason && <span className="ai-pill">AI reason</span>}
+          {prepState === "ready" && <span className="prep-pill ready">Brief ready</span>}
+          {prepState === "preparing" && (
+            <span className="prep-pill preparing">Preparing brief…</span>
+          )}
+          {prepState === "fallback" && (
+            <span className="prep-pill fallback">File brief only</span>
+          )}
           {outcome !== "queued" && (
             <span className="outcome-pill">{OUTCOME_LABELS[outcome]}</span>
           )}

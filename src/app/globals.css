@@ -530,6 +530,34 @@ h1 {
   margin: 0.35rem 0 0.15rem;
 }
 
+.week-prep-progress {
+  margin: 0.35rem 0 0;
+}
+
+.prep-pill {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+}
+
+.prep-pill.ready {
+  color: #1f6b3a;
+  background: #e5f6eb;
+}
+
+.prep-pill.preparing {
+  color: #0b5cab;
+  background: #dcebff;
+}
+
+.prep-pill.fallback {
+  color: #6b5b2e;
+  background: #f7f0d8;
+}
+
 .plan-item {
   display: grid;
   grid-template-columns: 2rem 1fr auto;

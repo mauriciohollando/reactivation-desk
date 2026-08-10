@@ -84,6 +84,10 @@ type State = {
   noteError: string | null;
   prepStatus: "idle" | "running" | "error";
   prepError: string | null;
+  /** Ids currently fetching call-prep (background or foreground). */
+  preparingIds: string[];
+  /** Background prefetch progress for the current week list. */
+  weekPrep: { status: "idle" | "running" | "complete"; done: number; total: number };
   loadDemoBook: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
   setTagPreset: (presetId: string) => void;
@@ -100,6 +104,8 @@ type State = {
   deepenTopProspects: (count?: number) => Promise<boolean>;
   appendProspectNote: (id: string, noteText: string) => Promise<boolean>;
   prepareCall: (id: string, force?: boolean) => Promise<boolean>;
+  /** Prefetch call briefs for everyone on this week's list (sequential, background). */
+  prefetchCampaignPreps: () => Promise<void>;
   logFreeformOutcome: (id: string, freeText: string) => Promise<boolean>;
   refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (
@@ -133,6 +139,17 @@ type State = {
 
 const defaultPreset = TAG_PRESETS[0]!;
 
+/** Serialize call-prep API work so background + open-call don't stampede the model. */
+let prepChain: Promise<void> = Promise.resolve();
+const inflightPreps = new Map<string, Promise<boolean>>();
+let prefetchGeneration = 0;
+
+function viewingCall(get: () => State, id: string) {
+  const state = get();
+  if (state.step !== "call") return false;
+  return state.campaign?.prospectIds[state.callIndex] === id;
+}
+
 function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessState) {
   // Drop per-row CSV raw maps — they duplicate every field and blow storage/memory.
   const slim = prospects.map((p) => ({ ...p, raw: {} as Record<string, string> }));
@@ -164,6 +181,8 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     noteError: null as string | null,
     prepStatus: "idle" as const,
     prepError: null as string | null,
+    preparingIds: [] as string[],
+    weekPrep: { status: "idle" as const, done: 0, total: 0 },
     step: "diagnose" as WizardStep,
     callIndex: 0,
     access: nextAccess,
@@ -203,6 +222,8 @@ export const useDesk = create<State>()(
       noteError: null,
       prepStatus: "idle",
       prepError: null,
+      preparingIds: [],
+      weekPrep: { status: "idle", done: 0, total: 0 },
       loadDemoBook: () => {
         const access = get().access;
         if (!canUseDesk(access) && access.plan !== "none") {
@@ -556,6 +577,7 @@ export const useDesk = create<State>()(
             step: pickIds.length ? "plan" : "diagnose",
             callIndex: 0,
           });
+          if (pickIds.length) void get().prefetchCampaignPreps();
         } catch (error) {
           set({
             enrichStatus: "error",
@@ -593,137 +615,206 @@ export const useDesk = create<State>()(
         set({ callIndex: index, step: "call", prepError: null });
         void get().prepareCall(id);
       },
-      prepareCall: async (id, force = false) => {
+      prefetchCampaignPreps: async () => {
+        const gen = ++prefetchGeneration;
+        const ids = [...(get().campaign?.prospectIds ?? [])];
+        if (!ids.length) {
+          set({ weekPrep: { status: "idle", done: 0, total: 0 } });
+          return;
+        }
+        set({ weekPrep: { status: "running", done: 0, total: ids.length } });
+        let done = 0;
+        for (const id of ids) {
+          if (gen !== prefetchGeneration) return;
+          if (!get().campaign?.prospectIds.includes(id)) continue;
+          await get().prepareCall(id, false);
+          done += 1;
+          if (gen !== prefetchGeneration) return;
+          set({
+            weekPrep: { status: "running", done, total: ids.length },
+          });
+        }
+        if (gen === prefetchGeneration) {
+          set({ weekPrep: { status: "complete", done, total: ids.length } });
+        }
+      },
+      prepareCall: (id, force = false) => {
         const existing = get().callPreps[id];
         // Retry automatically when prior packet was a local fallback after AI failure.
-        if (!force && existing && existing.source !== "fallback") return true;
-        if (get().prepStatus === "running" && !force) return false;
-        const ranked = get().ranked().find((p) => p.id === id);
-        const prospect = get().prospects.find((p) => p.id === id);
-        if (!prospect || !ranked) return false;
-        set({ prepStatus: "running", prepError: null });
-        try {
-          const response = await fetch("/api/call-prep", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prospect: {
-                id: prospect.id,
-                name: prospect.name,
-                company: prospect.company ?? null,
-                title: prospect.title ?? null,
-                lastTouch: prospect.lastTouch ?? null,
-                notes: (prospect.notes ?? "").slice(0, 2500) || null,
-                estimatedValue: prospect.estimatedValue ?? null,
-                emailDomain: prospect.email?.split("@")[1] ?? null,
-                whyCall: ranked.whyCall ?? null,
-              },
-            }),
-          });
-          const body = (await response.json()) as {
-            packet?: CallPrepPacket;
-            error?: string;
-          };
-          if (!response.ok || !body.packet) {
-            throw new Error(body.error ?? "Call prep failed");
-          }
-          const packet = normalizeCallPrepPacket({
-            ...body.packet,
-            source: "ai",
-          });
-          const bullets = packet.talkBullets.join("\n");
-          const priorTalk = get().talkEdits[id];
-          set({
-            callPreps: { ...get().callPreps, [id]: packet },
-            talkEdits: {
-              ...get().talkEdits,
-              // On re-verify, refresh coaching bullets; keep manual edits on first success only.
-              [id]: force || !priorTalk ? bullets : priorTalk,
-            },
-            prepStatus: "idle",
-            prepError: null,
-          });
-          return true;
-        } catch (error) {
-          // Local fallback brief from file only.
-          const fileDetails = [
-            prospect.title
-              ? {
-                  text: `Title on file: ${prospect.title}`,
-                  origin: "file" as const,
-                  cite: "title",
-                  url: "",
-                }
-              : null,
-            prospect.lastTouch
-              ? {
-                  text: `Last touch: ${prospect.lastTouch}`,
-                  origin: "file" as const,
-                  cite: "last touch",
-                  url: "",
-                }
-              : null,
-            prospect.estimatedValue
-              ? {
-                  text: `Value signal: ${prospect.estimatedValue}`,
-                  origin: "file" as const,
-                  cite: "value",
-                  url: "",
-                }
-              : null,
-          ].filter(Boolean) as CallPrepPacket["person"]["details"];
-
-          const fallback: CallPrepPacket = {
-            prospectId: id,
-            person: {
-              summary:
-                ranked.whyCall ||
-                (prospect.notes?.slice(0, 180) ?? "Limited file notes for this person."),
-              details: fileDetails,
-              sources: [],
-            },
-            company: {
-              summary: prospect.company
-                ? `${prospect.company} — public verify unavailable; using file only.`
-                : "No company on file.",
-              details: [],
-              sources: [],
-            },
-            saleHighlights: [],
-            leadWhy:
-              ranked.whyCall ||
-              "File shows a reopen candidate — confirm fit before pitching.",
-            offerFocus:
-              "Explore whether buy-sell, key-person, or succession planning is relevant; do not invent demand.",
-            approachNote:
-              "Open from the file reason only — public verify did not finish for this call.",
-            talkBullets: [
-              `Why now: ${ranked.whyCall || "Reopen from file notes"}`,
-              "Offer angle: ask if buy-sell / key-person / succession planning is on their radar",
-              "Ask: what changed in the business since we last spoke?",
-              prospect.company
-                ? `Caution: confirm role at ${prospect.company} before pitching`
-                : "Caution: confirm company and role before pitching",
-            ].filter(Boolean) as string[],
-            identityStatus: "file_only",
-            identityNote: "Showing file brief only — AI verify did not finish.",
-            preparedAt: new Date().toISOString(),
-            source: "fallback",
-          };
-          set({
-            callPreps: { ...get().callPreps, [id]: fallback },
-            talkEdits: {
-              ...get().talkEdits,
-              [id]: get().talkEdits[id] || fallback.talkBullets.join("\n"),
-            },
-            prepStatus: "error",
-            prepError:
-              error instanceof Error
-                ? error.message
-                : "AI call prep is temporarily unavailable.",
-          });
-          return false;
+        if (!force && existing && existing.source !== "fallback") {
+          return Promise.resolve(true);
         }
+        if (!force && inflightPreps.has(id)) {
+          return inflightPreps.get(id)!;
+        }
+
+        const job = new Promise<boolean>((resolve) => {
+          prepChain = prepChain
+            .catch(() => undefined)
+            .then(async () => {
+              // Re-check after waiting in queue — another job may have finished.
+              const ready = get().callPreps[id];
+              if (!force && ready && ready.source !== "fallback") {
+                resolve(true);
+                return;
+              }
+
+              const ranked = get().ranked().find((p) => p.id === id);
+              const prospect = get().prospects.find((p) => p.id === id);
+              if (!prospect || !ranked) {
+                resolve(false);
+                return;
+              }
+
+              set({
+                preparingIds: [
+                  ...get().preparingIds.filter((x) => x !== id),
+                  id,
+                ],
+                prepStatus: "running",
+                prepError: viewingCall(get, id) ? null : get().prepError,
+              });
+
+              try {
+                const response = await fetch("/api/call-prep", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    prospect: {
+                      id: prospect.id,
+                      name: prospect.name,
+                      company: prospect.company ?? null,
+                      title: prospect.title ?? null,
+                      lastTouch: prospect.lastTouch ?? null,
+                      notes: (prospect.notes ?? "").slice(0, 2500) || null,
+                      estimatedValue: prospect.estimatedValue ?? null,
+                      emailDomain: prospect.email?.split("@")[1] ?? null,
+                      whyCall: ranked.whyCall ?? null,
+                    },
+                  }),
+                });
+                const body = (await response.json()) as {
+                  packet?: CallPrepPacket;
+                  error?: string;
+                };
+                if (!response.ok || !body.packet) {
+                  throw new Error(body.error ?? "Call prep failed");
+                }
+                const packet = normalizeCallPrepPacket({
+                  ...body.packet,
+                  source: "ai",
+                });
+                const bullets = packet.talkBullets.join("\n");
+                const priorTalk = get().talkEdits[id];
+                const preparingIds = get().preparingIds.filter((x) => x !== id);
+                set({
+                  callPreps: { ...get().callPreps, [id]: packet },
+                  talkEdits: {
+                    ...get().talkEdits,
+                    [id]: force || !priorTalk ? bullets : priorTalk,
+                  },
+                  preparingIds,
+                  prepStatus: preparingIds.length ? "running" : "idle",
+                  prepError: viewingCall(get, id) ? null : get().prepError,
+                });
+                resolve(true);
+              } catch (error) {
+                const fileDetails = [
+                  prospect.title
+                    ? {
+                        text: `Title on file: ${prospect.title}`,
+                        origin: "file" as const,
+                        cite: "title",
+                        url: "",
+                      }
+                    : null,
+                  prospect.lastTouch
+                    ? {
+                        text: `Last touch: ${prospect.lastTouch}`,
+                        origin: "file" as const,
+                        cite: "last touch",
+                        url: "",
+                      }
+                    : null,
+                  prospect.estimatedValue
+                    ? {
+                        text: `Value signal: ${prospect.estimatedValue}`,
+                        origin: "file" as const,
+                        cite: "value",
+                        url: "",
+                      }
+                    : null,
+                ].filter(Boolean) as CallPrepPacket["person"]["details"];
+
+                const fallback: CallPrepPacket = {
+                  prospectId: id,
+                  person: {
+                    summary:
+                      ranked.whyCall ||
+                      (prospect.notes?.slice(0, 180) ??
+                        "Limited file notes for this person."),
+                    details: fileDetails,
+                    sources: [],
+                  },
+                  company: {
+                    summary: prospect.company
+                      ? `${prospect.company} — public verify unavailable; using file only.`
+                      : "No company on file.",
+                    details: [],
+                    sources: [],
+                  },
+                  saleHighlights: [],
+                  leadWhy:
+                    ranked.whyCall ||
+                    "File shows a reopen candidate — confirm fit before pitching.",
+                  offerFocus:
+                    "Explore whether buy-sell, key-person, or succession planning is relevant; do not invent demand.",
+                  approachNote:
+                    "Open from the file reason only — public verify did not finish for this call.",
+                  talkBullets: [
+                    `Why now: ${ranked.whyCall || "Reopen from file notes"}`,
+                    "Offer angle: ask if buy-sell / key-person / succession planning is on their radar",
+                    "Ask: what changed in the business since we last spoke?",
+                    prospect.company
+                      ? `Caution: confirm role at ${prospect.company} before pitching`
+                      : "Caution: confirm company and role before pitching",
+                  ].filter(Boolean) as string[],
+                  identityStatus: "file_only",
+                  identityNote:
+                    "Showing file brief only — AI verify did not finish.",
+                  preparedAt: new Date().toISOString(),
+                  source: "fallback",
+                };
+                const preparingIds = get().preparingIds.filter((x) => x !== id);
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "AI call prep is temporarily unavailable.";
+                set({
+                  callPreps: { ...get().callPreps, [id]: fallback },
+                  talkEdits: {
+                    ...get().talkEdits,
+                    [id]: get().talkEdits[id] || fallback.talkBullets.join("\n"),
+                  },
+                  preparingIds,
+                  prepStatus: preparingIds.length
+                    ? "running"
+                    : viewingCall(get, id)
+                      ? "error"
+                      : "idle",
+                  // Only surface errors for the call currently on screen.
+                  prepError: viewingCall(get, id) ? message : get().prepError,
+                });
+                resolve(false);
+              }
+            });
+        });
+
+        inflightPreps.set(id, job);
+        void job.finally(() => {
+          if (inflightPreps.get(id) === job) inflightPreps.delete(id);
+        });
+        return job;
       },
       logFreeformOutcome: async (id, freeText) => {
         const prospect = get().prospects.find((p) => p.id === id);
@@ -1016,6 +1107,7 @@ export const useDesk = create<State>()(
           step: "plan",
           callIndex: 0,
         });
+        if (top.length) void get().prefetchCampaignPreps();
       },
       clearSelection: () => set({ selectedIds: [] }),
       setOutcome: (id, outcome) =>
@@ -1052,7 +1144,8 @@ export const useDesk = create<State>()(
         });
       },
       ranked: () => rankProspects(get().prospects, get().outcomes),
-      resetAll: () =>
+      resetAll: () => {
+        prefetchGeneration += 1;
         set({
           prospects: [],
           outcomes: {},
@@ -1080,8 +1173,11 @@ export const useDesk = create<State>()(
           noteError: null,
           prepStatus: "idle",
           prepError: null,
+          preparingIds: [],
+          weekPrep: { status: "idle", done: 0, total: 0 },
           // Keep access + tag vocabulary (+ optional campaign brief) across books.
-        }),
+        });
+      },
     }),
     {
       // Only lightweight prefs survive reloads. Full books + AI packets stay in memory
@@ -1184,6 +1280,8 @@ export const useDesk = create<State>()(
         noteError: null,
         prepStatus: "idle",
         prepError: null,
+        preparingIds: [],
+        weekPrep: { status: "idle", done: 0, total: 0 },
         aiAnalyzedCount: 0,
       }),
       onRehydrateStorage: () => {
