@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   canUseDesk,
   emptyAccess,
@@ -803,47 +803,69 @@ export const useDesk = create<State>()(
         weekBudget: state.weekBudget,
         preferWarm: state.preferWarm,
       }),
-      storage: {
-        getItem: (name) => {
-          try {
-            return localStorage.getItem(name);
-          } catch {
-            return null;
-          }
-        },
-        setItem: (name, value) => {
-          try {
-            localStorage.setItem(name, value);
-          } catch {
-            // Free older fat desk keys, then retry once with prefs-only payload.
-            for (const key of [
-              "reactivation-desk-v5",
-              "reactivation-desk-v6",
-              "reactivation-desk-v7",
-              name,
-            ]) {
+      storage: createJSONStorage(() => {
+        const safe: Storage = {
+          get length() {
+            try {
+              return localStorage.length;
+            } catch {
+              return 0;
+            }
+          },
+          clear() {
+            try {
+              localStorage.clear();
+            } catch {
+              /* ignore */
+            }
+          },
+          getItem(key) {
+            try {
+              return localStorage.getItem(key);
+            } catch {
+              return null;
+            }
+          },
+          key(index) {
+            try {
+              return localStorage.key(index);
+            } catch {
+              return null;
+            }
+          },
+          removeItem(key) {
+            try {
+              localStorage.removeItem(key);
+            } catch {
+              /* ignore */
+            }
+          },
+          setItem(key, value) {
+            try {
+              localStorage.setItem(key, value);
+            } catch {
+              for (const old of [
+                "reactivation-desk-v5",
+                "reactivation-desk-v6",
+                "reactivation-desk-v7",
+                key,
+              ]) {
+                try {
+                  localStorage.removeItem(old);
+                } catch {
+                  /* ignore */
+                }
+              }
               try {
-                localStorage.removeItem(key);
+                localStorage.setItem(key, value);
               } catch {
-                /* ignore */
+                console.warn("Desk prefs could not be persisted (storage full).");
               }
             }
-            try {
-              localStorage.setItem(name, value);
-            } catch {
-              // Last resort: keep the session in memory only.
-              console.warn("Desk prefs could not be persisted (storage full).");
-            }
-          }
-        },
-        removeItem: (name) => {
-          try {
-            localStorage.removeItem(name);
-          } catch {
-            /* ignore */
-          }
-        },
-      },
+          },
+        };
+        return safe;
+      }),
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<State>),
