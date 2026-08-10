@@ -19,14 +19,16 @@ const inputSchema = z.object({
   }),
 });
 
+// Keep ceilings generous — web_search answers often overrun short maxes and
+// zodTextFormat rejects the whole packet (503). We still clip before respond.
 const briefSchema = z.object({
-  summary: z.string().max(280),
-  details: z.array(z.string().max(220)).max(6),
+  summary: z.string().max(500),
+  details: z.array(z.string().max(500)).max(6),
   sources: z
     .array(
       z.object({
-        label: z.string().max(80),
-        url: z.string().max(400),
+        label: z.string().max(120),
+        url: z.string().max(2000),
       }),
     )
     .max(4),
@@ -35,10 +37,30 @@ const briefSchema = z.object({
 const prepSchema = z.object({
   person: briefSchema,
   company: briefSchema,
-  talkBullets: z.array(z.string().max(180)).min(3).max(7),
+  talkBullets: z.array(z.string().max(320)).min(3).max(7),
   identityStatus: z.enum(["matched", "possible", "unresolved", "file_only"]),
-  identityNote: z.string().max(220),
+  identityNote: z.string().max(320),
 });
+
+function clip(text: string, max: number) {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1).trimEnd()}…`;
+}
+
+function clipBrief(section: z.infer<typeof briefSchema>) {
+  return {
+    summary: clip(section.summary, 280),
+    details: section.details.map((d) => clip(d, 220)).slice(0, 6),
+    sources: section.sources
+      .map((s) => ({
+        label: clip(s.label, 80),
+        url: s.url.trim().slice(0, 400),
+      }))
+      .filter((s) => s.label && s.url)
+      .slice(0, 4),
+  };
+}
 
 export async function POST(request: Request) {
   try {
@@ -49,6 +71,7 @@ export async function POST(request: Request) {
 
     const p = parsed.data.prospect;
     const hasCompany = Boolean(p.company?.trim());
+    const notes = (p.notes ?? "").slice(0, 2500);
 
     const response = await getOpenAI().responses.parse({
       model: process.env.OPENAI_WEB_MODEL ?? "gpt-4.1-mini",
@@ -66,10 +89,10 @@ Rules:
 - Ground person summary first in the CRM/file notes and why-call reason.
 - If a company is provided, lightly verify public business facts (role association, company what-they-do, material recent events). Prefer official sites and reputable business news.
 - Do NOT research personal life, family, politics, health, or home addresses.
-- person.summary and company.summary must be 1-2 sentences useful on a call.
-- details are optional expansions (facts only). Use [] when unknown.
+- person.summary and company.summary: 1-2 short sentences (under 220 chars each).
+- details: short facts only, each under 180 characters. Use [] when unknown.
 - sources only from real search results; use [] when file-only.
-- talkBullets: 3-7 short bullets the advisor can glance at while dialing — opening angle, key facts, questions, caution. No long scripts.
+- talkBullets: 3-7 short bullets (under 140 chars) the advisor can glance at while dialing — opening angle, key facts, questions, caution. No long scripts.
 - If company is missing or identity is unclear, set identityStatus to file_only or unresolved and say so in identityNote.
 - Never invent revenue, ownership, or events not supported by file or sources.`,
         },
@@ -85,7 +108,7 @@ LAST TOUCH: ${p.lastTouch ?? "unknown"}
 ESTIMATED VALUE: ${p.estimatedValue ?? "unknown"}
 WHY CALL: ${p.whyCall ?? "unknown"}
 NOTES:
-${p.notes ?? "none"}`,
+${notes || "none"}`,
         },
       ],
     });
@@ -96,12 +119,13 @@ ${p.notes ?? "none"}`,
     return Response.json({
       packet: {
         prospectId: p.id,
-        person: output.person,
-        company: output.company,
-        talkBullets: output.talkBullets,
+        person: clipBrief(output.person),
+        company: clipBrief(output.company),
+        talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
         identityStatus: hasCompany ? output.identityStatus : "file_only",
-        identityNote: output.identityNote,
+        identityNote: clip(output.identityNote, 220),
         preparedAt: new Date().toISOString(),
+        source: "ai" as const,
       },
       model: process.env.OPENAI_WEB_MODEL ?? "gpt-4.1-mini",
     });

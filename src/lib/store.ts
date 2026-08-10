@@ -516,7 +516,10 @@ export const useDesk = create<State>()(
         void get().prepareCall(id);
       },
       prepareCall: async (id, force = false) => {
-        if (!force && get().callPreps[id]) return true;
+        const existing = get().callPreps[id];
+        // Retry automatically when prior packet was a local fallback after AI failure.
+        if (!force && existing && existing.source !== "fallback") return true;
+        if (get().prepStatus === "running" && !force) return false;
         const ranked = get().ranked().find((p) => p.id === id);
         const prospect = get().prospects.find((p) => p.id === id);
         if (!prospect || !ranked) return false;
@@ -532,7 +535,7 @@ export const useDesk = create<State>()(
                 company: prospect.company ?? null,
                 title: prospect.title ?? null,
                 lastTouch: prospect.lastTouch ?? null,
-                notes: prospect.notes ?? null,
+                notes: (prospect.notes ?? "").slice(0, 2500) || null,
                 estimatedValue: prospect.estimatedValue ?? null,
                 emailDomain: prospect.email?.split("@")[1] ?? null,
                 whyCall: ranked.whyCall ?? null,
@@ -546,9 +549,10 @@ export const useDesk = create<State>()(
           if (!response.ok || !body.packet) {
             throw new Error(body.error ?? "Call prep failed");
           }
-          const bullets = body.packet.talkBullets.join("\n");
+          const packet: CallPrepPacket = { ...body.packet, source: "ai" };
+          const bullets = packet.talkBullets.join("\n");
           set({
-            callPreps: { ...get().callPreps, [id]: body.packet },
+            callPreps: { ...get().callPreps, [id]: packet },
             talkEdits: {
               ...get().talkEdits,
               [id]: get().talkEdits[id] || bullets,
@@ -585,11 +589,9 @@ export const useDesk = create<State>()(
               "Ask what changed since last contact",
             ].filter(Boolean) as string[],
             identityStatus: "file_only",
-            identityNote:
-              error instanceof Error
-                ? error.message
-                : "Could not run AI verify; showing file brief.",
+            identityNote: "Showing file brief only — AI verify did not finish.",
             preparedAt: new Date().toISOString(),
+            source: "fallback",
           };
           set({
             callPreps: { ...get().callPreps, [id]: fallback },
@@ -598,7 +600,10 @@ export const useDesk = create<State>()(
               [id]: get().talkEdits[id] || fallback.talkBullets.join("\n"),
             },
             prepStatus: "error",
-            prepError: fallback.identityNote,
+            prepError:
+              error instanceof Error
+                ? error.message
+                : "AI call prep is temporarily unavailable.",
           });
           return false;
         }

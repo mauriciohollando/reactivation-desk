@@ -12,4 +12,6 @@ export type CallPrepPacket = {
   identityStatus: "matched" | "possible" | "unresolved" | "file_only";
   identityNote: string;
   preparedAt: string;
+  /** ai = verified packet; fallback = local file-only after AI failure */
+  source?: "ai" | "fallback";
 };

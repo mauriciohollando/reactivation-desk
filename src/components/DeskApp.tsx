@@ -909,10 +909,16 @@ function CallMode({
                 status={prep.identityStatus}
                 section={prep.company}
               />
-              <p className="muted tiny">{prep.identityNote}</p>
+              {prep.source !== "fallback" && prep.identityNote && (
+                <p className="muted tiny">{prep.identityNote}</p>
+              )}
             </>
           )}
-          {prepError && <p className="error">{prepError}</p>}
+          {prepError && (
+            <p className="error">
+              {prepError} Use Re-verify with AI to try again.
+            </p>
+          )}
 
           <div className="talk-points">
             <span className="block-label">Talk points</span>
