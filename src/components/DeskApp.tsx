@@ -8,6 +8,7 @@ import {
   accessLabel,
   canUseDesk,
 } from "@/lib/access";
+import type { CallBriefSection, CallPrepPacket } from "@/lib/callPrepTypes";
 import type { InsightTag } from "@/lib/insightTags";
 import {
   excludedFromPlan,
@@ -59,7 +60,6 @@ export function DeskApp() {
   const sourceLabel = useDesk((s) => s.sourceLabel);
   const campaign = useDesk((s) => s.campaign);
   const talkEdits = useDesk((s) => s.talkEdits);
-  const reasonHeld = useDesk((s) => s.reasonHeld);
   const importSummary = useDesk((s) => s.importSummary);
   const step = useDesk((s) => s.step);
   const callIndex = useDesk((s) => s.callIndex);
@@ -74,6 +74,9 @@ export function DeskApp() {
   const enrichError = useDesk((s) => s.enrichError);
   const noteStatus = useDesk((s) => s.noteStatus);
   const noteError = useDesk((s) => s.noteError);
+  const prepStatus = useDesk((s) => s.prepStatus);
+  const prepError = useDesk((s) => s.prepError);
+  const callPreps = useDesk((s) => s.callPreps);
   const aiAnalyzedCount = useDesk((s) => s.aiAnalyzedCount);
   const analysisError = useDesk((s) => s.analysisError);
   const loadDemoBook = useDesk((s) => s.loadDemoBook);
@@ -85,14 +88,13 @@ export function DeskApp() {
   const unlockWithPromo = useDesk((s) => s.unlockWithPromo);
   const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
   const clearTagFilters = useDesk((s) => s.clearTagFilters);
-  const enrichImportedBook = useDesk((s) => s.enrichImportedBook);
-  const appendProspectNote = useDesk((s) => s.appendProspectNote);
-  const buildWeekPlan = useDesk((s) => s.buildWeekPlan);
+  const buildWeekWithAi = useDesk((s) => s.buildWeekWithAi);
+  const openCall = useDesk((s) => s.openCall);
+  const prepareCall = useDesk((s) => s.prepareCall);
+  const logFreeformOutcome = useDesk((s) => s.logFreeformOutcome);
   const setOutcome = useDesk((s) => s.setOutcome);
   const setTalkEdit = useDesk((s) => s.setTalkEdit);
-  const setReasonHeld = useDesk((s) => s.setReasonHeld);
   const setStep = useDesk((s) => s.setStep);
-  const setCallIndex = useDesk((s) => s.setCallIndex);
   const setWeekBudget = useDesk((s) => s.setWeekBudget);
   const setPreferWarm = useDesk((s) => s.setPreferWarm);
   const rankedFn = useDesk((s) => s.ranked);
@@ -448,35 +450,6 @@ export function DeskApp() {
             <Stat label="Off-limits" value={importSummary.doNotColdCall} danger />
           </div>
 
-          <div className="ai-simple-card">
-            <div>
-              <h3>
-                {aiAnalyzedCount
-                  ? `AI sharpened ${aiAnalyzedCount} call reasons`
-                  : "Improve reasons & tags with AI"}
-              </h3>
-              <p>
-                Uses only your allowed tags. Writes a clearer “call because” from notes — no
-                invented facts.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn ai-btn"
-              disabled={enrichStatus === "running" || !allowedTags.length}
-              onClick={() => void enrichImportedBook(40)}
-            >
-              {enrichStatus === "running"
-                ? "Working…"
-                : aiAnalyzedCount
-                  ? "Run AI again"
-                  : "Improve with AI"}
-            </button>
-          </div>
-          {(enrichError || analysisError) && (
-            <p className="error">{enrichError || analysisError}</p>
-          )}
-
           {(importSummary.tagCensus?.length ?? 0) > 0 && (
             <div className="tag-census">
               <span className="block-label">Focus this week (optional)</span>
@@ -514,6 +487,7 @@ export function DeskApp() {
                   type="button"
                   className={weekBudget === n ? "chip on" : "chip"}
                   onClick={() => setWeekBudget(n)}
+                  disabled={enrichStatus === "running"}
                 >
                   {n}
                 </button>
@@ -524,6 +498,7 @@ export function DeskApp() {
                 type="checkbox"
                 checked={preferWarm}
                 onChange={(e) => setPreferWarm(e.target.checked)}
+                disabled={enrichStatus === "running"}
               />
               Prefer warm reopen first
             </label>
@@ -533,16 +508,35 @@ export function DeskApp() {
             <p className="error">Need phone or email on some rows before calling.</p>
           )}
 
-          <div className="toolbar">
-            <button
-              type="button"
-              className="btn primary lg"
-              disabled={blockCalling}
-              onClick={() => buildWeekPlan(weekBudget)}
-            >
-              Build {weekBudget}-call week
-            </button>
-          </div>
+          {enrichStatus === "running" ? (
+            <div className="ai-building" role="status" aria-live="polite">
+              <div className="ai-building-pulse" aria-hidden />
+              <div>
+                <strong>Building your week with AI…</strong>
+                <p>
+                  Reading notes, applying your tags, and writing a concrete reason to call each
+                  person. This usually takes a few seconds.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="build-cta">
+              <button
+                type="button"
+                className="btn primary lg"
+                disabled={blockCalling || !allowedTags.length}
+                onClick={() => void buildWeekWithAi(weekBudget)}
+              >
+                Build {weekBudget}-call week with AI
+              </button>
+              <p className="muted tiny">
+                AI writes the “call because” lines from your notes using only the tags you allowed.
+              </p>
+            </div>
+          )}
+          {(enrichError || analysisError) && (
+            <p className="error">{enrichError || analysisError}</p>
+          )}
         </section>
       )}
 
@@ -552,15 +546,24 @@ export function DeskApp() {
           <div className="plan-header">
             <div>
               <h2>{campaign.prospectIds.length} people this week</h2>
-              <p className="muted">Cited reasons. Exclusions are intentional.</p>
+              <p className="muted">
+                {aiAnalyzedCount
+                  ? `AI wrote call reasons · ${contacted} logged · call anyone in any order`
+                  : `${contacted} logged · call anyone in any order`}
+              </p>
             </div>
-            <button type="button" className="btn primary lg" onClick={() => setStep("call")}>
-              Start calling
-            </button>
+            {contacted >= campaignRows.length && campaignRows.length > 0 && (
+              <button type="button" className="btn" onClick={() => setStep("wrap")}>
+                Wrap week
+              </button>
+            )}
           </div>
 
           <div className="plan-list">
-            {filteredCampaignRows.map((p) => (
+            {filteredCampaignRows.map((p) => {
+              const aiReason = Boolean(p.whyCallOverride);
+              const outcome = outcomes[p.id] ?? p.outcome;
+              return (
               <article key={p.id} className="plan-item">
                 <div className="plan-index">
                   {campaignRows.findIndex((x) => x.id === p.id) + 1}
@@ -569,6 +572,10 @@ export function DeskApp() {
                   <div className="plan-title-row">
                     <h3>{p.name}</h3>
                     <span className="silence-pill">{silenceLabel(p.silenceBucket)}</span>
+                    {aiReason && <span className="ai-pill">AI reason</span>}
+                    {outcome !== "queued" && (
+                      <span className="outcome-pill">{OUTCOME_LABELS[outcome]}</span>
+                    )}
                   </div>
                   <p className="why-call">
                     <span className="why-label">Call because</span>
@@ -585,8 +592,16 @@ export function DeskApp() {
                     )}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => openCall(p.id)}
+                >
+                  Call
+                </button>
               </article>
-            ))}
+              );
+            })}
           </div>
 
           <button
@@ -617,30 +632,33 @@ export function DeskApp() {
       {step === "call" && callCard && (
         <CallMode
           p={callCard}
-          index={callIndex}
-          total={campaignRows.length}
+          prep={callPreps[callCard.id]}
+          prepBusy={prepStatus === "running"}
+          prepError={prepError}
           talk={talkEdits[callCard.id] ?? callCard.talkTrack}
           outcome={outcomes[callCard.id] ?? callCard.outcome}
-          reason={reasonHeld[callCard.id] ?? ""}
           noteBusy={noteStatus === "running"}
           noteError={noteError}
           onTalk={(t) => setTalkEdit(callCard.id, t)}
-          onOutcome={(o) => setOutcome(callCard.id, o)}
-          onReason={(v) => setReasonHeld(callCard.id, v)}
-          onAppendNote={(text) => appendProspectNote(callCard.id, text)}
-          onPrev={() => setCallIndex(Math.max(0, callIndex - 1))}
-          onNext={() => {
-            if (callIndex < campaignRows.length - 1) setCallIndex(callIndex + 1);
-            else setStep("wrap");
+          onOutcome={(o) => {
+            setOutcome(callCard.id, o);
+            setStep("plan");
           }}
+          onLogFreeform={async (text) => {
+            const ok = await logFreeformOutcome(callCard.id, text);
+            if (ok) setStep("plan");
+            return ok;
+          }}
+          onRefreshPrep={() => void prepareCall(callCard.id, true)}
+          onBack={() => setStep("plan")}
         />
       )}
 
       {step === "call" && !callCard && (
         <section className="funnel-card">
-          <p>Build a weekly list first.</p>
-          <button type="button" className="btn primary" onClick={() => setStep("diagnose")}>
-            Back
+          <p>Pick someone from this week&apos;s list.</p>
+          <button type="button" className="btn primary" onClick={() => setStep("plan")}>
+            Back to list
           </button>
         </section>
       )}
@@ -727,59 +745,83 @@ function Stat({
   );
 }
 
+const OUTCOME_LABELS: Record<Outcome, string> = {
+  queued: "Not called",
+  called: "Reached / voicemail",
+  meeting: "Meeting booked",
+  sale: "Sale",
+  skip: "Skipped",
+  not_now: "Follow up later",
+  wrong_number: "Wrong number",
+  do_not_contact: "Do not contact",
+};
+
+const OUTCOME_CHOICES: { value: Outcome; label: string; hint: string }[] = [
+  { value: "meeting", label: "Meeting booked", hint: "They agreed to a next conversation" },
+  { value: "called", label: "Reached / voicemail", hint: "You dialed or spoke, no meeting yet" },
+  { value: "not_now", label: "Follow up later", hint: "Timing is wrong — try again later" },
+  { value: "wrong_number", label: "Wrong number", hint: "Contact info is bad" },
+  { value: "do_not_contact", label: "Do not contact", hint: "They asked you not to call again" },
+  { value: "sale", label: "Sale", hint: "Business closed" },
+];
+
 function CallMode({
   p,
-  index,
-  total,
+  prep,
+  prepBusy,
+  prepError,
   talk,
   outcome,
-  reason,
   noteBusy,
   noteError,
   onTalk,
   onOutcome,
-  onReason,
-  onAppendNote,
-  onPrev,
-  onNext,
+  onLogFreeform,
+  onRefreshPrep,
+  onBack,
 }: {
   p: RankedProspect;
-  index: number;
-  total: number;
+  prep?: CallPrepPacket;
+  prepBusy: boolean;
+  prepError: string | null;
   talk: string;
   outcome: Outcome;
-  reason: string;
   noteBusy: boolean;
   noteError: string | null;
   onTalk: (t: string) => void;
   onOutcome: (o: Outcome) => void;
-  onReason: (v: "yes" | "stale") => void;
-  onAppendNote: (text: string) => Promise<boolean>;
-  onPrev: () => void;
-  onNext: () => void;
+  onLogFreeform: (text: string) => Promise<boolean>;
+  onRefreshPrep: () => void;
+  onBack: () => void;
 }) {
-  const [noteDraft, setNoteDraft] = useState("");
+  const [freeform, setFreeform] = useState("");
   const blocked = p.silenceBucket === "do_not_cold_call";
+  const bullets = talk
+    .split("\n")
+    .map((line) => line.replace(/^[-•*]\s*/, "").trim())
+    .filter(Boolean);
 
   return (
     <section className="call-mode funnel-card">
-      <div className="call-progress">
-        Call {index + 1} / {total}
+      <div className="call-topbar">
+        <button type="button" className="linkish" onClick={onBack}>
+          ← Back to list
+        </button>
+        {outcome !== "queued" && (
+          <span className="outcome-pill">{OUTCOME_LABELS[outcome]}</span>
+        )}
       </div>
+
       <h2>{p.name}</h2>
-      <p className="why-call call-why">
-        <span className="why-label">Call because</span>
-        {p.whyCall}
-      </p>
-      {p.whySupport ? <p className="why-support">{p.whySupport}</p> : null}
-      <InsightTagRow tags={p.tags} />
-      <p className="meta-line">
+      <p className="meta-line call-contact">
         {p.title ? `${p.title} · ` : ""}
         {p.company ?? "No company"}
       </p>
-      <p className="meta-line">
+      <p className="meta-line call-contact">
         {p.phone ? (
-          <a href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>{p.phone}</a>
+          <a className="phone-link" href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>
+            {p.phone}
+          </a>
         ) : (
           "No phone"
         )}
@@ -787,38 +829,85 @@ function CallMode({
         {p.email ?? "No email"}
       </p>
 
+      <p className="why-call call-why">
+        <span className="why-label">Call because</span>
+        {p.whyCall}
+      </p>
+      <InsightTagRow tags={p.tags} />
+
       {blocked ? (
         <div className="blocked-call">
           <strong>Hard stop</strong>
           <p>Do not cold-call this person.</p>
-          <button type="button" className="btn" onClick={onNext}>
-            Skip
+          <button type="button" className="btn" onClick={onBack}>
+            Back to list
           </button>
         </div>
       ) : (
         <>
-          <label className="block-label">Talk track</label>
-          <textarea value={talk} onChange={(e) => onTalk(e.target.value)} rows={4} />
+          <div className="prep-toolbar">
+            <span className="block-label" style={{ margin: 0 }}>
+              Person & company brief
+            </span>
+            <button
+              type="button"
+              className="btn ghost sm"
+              disabled={prepBusy}
+              onClick={onRefreshPrep}
+            >
+              {prepBusy ? "Verifying…" : prep ? "Re-verify with AI" : "Verify with AI"}
+            </button>
+          </div>
 
-          <label className="block-label">Add notes (typed or paste from AI notetaker)</label>
-          <textarea
-            value={noteDraft}
-            onChange={(e) => setNoteDraft(e.target.value)}
-            rows={5}
-            placeholder="Paste call notes or a transcript summary…"
-          />
-          <button
-            type="button"
-            className="btn ai-btn"
-            disabled={noteBusy || !noteDraft.trim()}
-            onClick={async () => {
-              const ok = await onAppendNote(noteDraft);
-              if (ok) setNoteDraft("");
-            }}
-          >
-            {noteBusy ? "Updating file…" : "Save & update with AI"}
-          </button>
-          {noteError && <p className="error">{noteError}</p>}
+          {prepBusy && !prep && (
+            <div className="ai-building" role="status">
+              <div className="ai-building-pulse" aria-hidden />
+              <div>
+                <strong>Preparing this call…</strong>
+                <p>Checking the file and public company context.</p>
+              </div>
+            </div>
+          )}
+
+          {prep && (
+            <>
+              <ExpandableBrief
+                title="Person"
+                status={prep.identityStatus}
+                section={prep.person}
+              />
+              <ExpandableBrief
+                title="Company"
+                status={prep.identityStatus}
+                section={prep.company}
+              />
+              <p className="muted tiny">{prep.identityNote}</p>
+            </>
+          )}
+          {prepError && <p className="error">{prepError}</p>}
+
+          <div className="talk-points">
+            <span className="block-label">Talk points</span>
+            {bullets.length ? (
+              <ul>
+                {bullets.map((bullet) => (
+                  <li key={bullet}>{bullet}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">AI talk points will appear here once prep finishes.</p>
+            )}
+            <details className="notes-history">
+              <summary>Edit talk points</summary>
+              <textarea
+                value={talk}
+                onChange={(e) => onTalk(e.target.value)}
+                rows={5}
+                placeholder="One bullet per line"
+              />
+            </details>
+          </div>
+
           {p.notes && (
             <details className="notes-history">
               <summary>Notes on file</summary>
@@ -826,59 +915,91 @@ function CallMode({
             </details>
           )}
 
-          <label className="block-label">Did the reason still hold?</label>
-          <div className="filters">
-            <button
-              type="button"
-              className={reason === "yes" ? "chip on" : "chip"}
-              onClick={() => onReason("yes")}
-            >
-              Yes
-            </button>
-            <button
-              type="button"
-              className={reason === "stale" ? "chip on" : "chip"}
-              onClick={() => onReason("stale")}
-            >
-              Stale
-            </button>
-          </div>
+          <div className="after-call">
+            <h3>After the call — log the result</h3>
+            <p className="muted">
+              Pick the closest outcome, or write anything that happened and let AI file it.
+            </p>
 
-          <div className="call-actions">
-            {(
-              [
-                ["called", "Called"],
-                ["meeting", "Meeting"],
-                ["not_now", "Not now"],
-                ["wrong_number", "Wrong #"],
-                ["do_not_contact", "Do not contact"],
-                ["sale", "Sale"],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={outcome === value ? "btn primary" : "btn"}
-                onClick={() => {
-                  onOutcome(value);
-                  onNext();
-                }}
-              >
-                {label}
-              </button>
-            ))}
+            <div className="outcome-grid">
+              {OUTCOME_CHOICES.map((choice) => (
+                <button
+                  key={choice.value}
+                  type="button"
+                  className={
+                    outcome === choice.value ? "outcome-card on" : "outcome-card"
+                  }
+                  onClick={() => onOutcome(choice.value)}
+                >
+                  <strong>{choice.label}</strong>
+                  <span>{choice.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            <label className="block-label">Or write what happened</label>
+            <textarea
+              value={freeform}
+              onChange={(e) => setFreeform(e.target.value)}
+              rows={4}
+              placeholder='e.g. “Left voicemail. His partner is retiring in October — call back then.” or paste AI notetaker notes'
+            />
+            <button
+              type="button"
+              className="btn ai-btn"
+              disabled={noteBusy || !freeform.trim()}
+              onClick={() => void onLogFreeform(freeform)}
+            >
+              {noteBusy ? "Filing with AI…" : "Save with AI"}
+            </button>
+            <p className="muted tiny">
+              AI sets the result tag, updates notes, and refreshes tags when it can.
+            </p>
+            {noteError && <p className="error">{noteError}</p>}
           </div>
         </>
       )}
-
-      <div className="actions">
-        <button type="button" className="btn" onClick={onPrev} disabled={index === 0}>
-          Previous
-        </button>
-        <button type="button" className="btn ghost" onClick={onNext}>
-          Next
-        </button>
-      </div>
     </section>
+  );
+}
+
+function ExpandableBrief({
+  title,
+  section,
+  status,
+}: {
+  title: string;
+  section: CallBriefSection;
+  status: CallPrepPacket["identityStatus"];
+}) {
+  return (
+    <details className="brief-card" open>
+      <summary>
+        <span>{title}</span>
+        <em>{status.replace("_", " ")}</em>
+      </summary>
+      <p className="brief-summary">{section.summary}</p>
+      {(section.details.length > 0 || section.sources.length > 0) && (
+        <details className="brief-more">
+          <summary>More detail</summary>
+          {section.details.length > 0 && (
+            <ul>
+              {section.details.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          )}
+          {section.sources.length > 0 && (
+            <div className="brief-sources">
+              {section.sources.map((source) => (
+                <a key={source.url} href={source.url} target="_blank" rel="noreferrer">
+                  {source.label || source.url}
+                </a>
+              ))}
+            </div>
+          )}
+        </details>
+      )}
+    </details>
   );
 }

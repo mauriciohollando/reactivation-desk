@@ -12,6 +12,7 @@ import {
 import { buildDemoAdvisorBook } from "./demoBook";
 import { analyzeBookLocally, balancedCallable } from "./analysisEngine";
 import type { ProspectAnalysis, WebEvidencePacket } from "./analysisTypes";
+import type { CallPrepPacket } from "./callPrepTypes";
 import type { InsightTag } from "./insightTags";
 import {
   buildImportSummary,
@@ -56,6 +57,7 @@ type State = {
   preferWarm: boolean;
   analyses: Record<string, ProspectAnalysis>;
   webEvidence: Record<string, WebEvidencePacket>;
+  callPreps: Record<string, CallPrepPacket>;
   analysisStatus: "ready" | "running" | "complete" | "error";
   analysisError: string | null;
   aiAnalyzedCount: number;
@@ -67,6 +69,8 @@ type State = {
   enrichError: string | null;
   noteStatus: "idle" | "running" | "error";
   noteError: string | null;
+  prepStatus: "idle" | "running" | "error";
+  prepError: string | null;
   loadDemoBook: () => void;
   loadProspects: (prospects: Prospect[], sourceLabel: string) => void;
   setTagPreset: (presetId: string) => void;
@@ -78,11 +82,16 @@ type State = {
   toggleSelect: (id: string) => void;
   toggleTagFilter: (id: string) => void;
   clearTagFilters: () => void;
-  enrichImportedBook: (count?: number) => Promise<void>;
-  deepenTopProspects: (count?: number) => Promise<void>;
+  enrichImportedBook: (count?: number) => Promise<boolean>;
+  deepenTopProspects: (count?: number) => Promise<boolean>;
   appendProspectNote: (id: string, noteText: string) => Promise<boolean>;
+  prepareCall: (id: string, force?: boolean) => Promise<boolean>;
+  logFreeformOutcome: (id: string, freeText: string) => Promise<boolean>;
   refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (n?: WeekBudget) => void;
+  /** Enrich callable prospects with AI, then build the week list. */
+  buildWeekWithAi: (n?: WeekBudget) => Promise<void>;
+  openCall: (id: string) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
   setTalkEdit: (id: string, text: string) => void;
@@ -116,6 +125,7 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     tagFilters: [] as string[],
     analyses: analyzeBookLocally(ranked),
     webEvidence: {} as Record<string, WebEvidencePacket>,
+    callPreps: {} as Record<string, CallPrepPacket>,
     analysisStatus: "ready" as const,
     analysisError: null as string | null,
     aiAnalyzedCount: 0,
@@ -123,6 +133,8 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     enrichError: null as string | null,
     noteStatus: "idle" as const,
     noteError: null as string | null,
+    prepStatus: "idle" as const,
+    prepError: null as string | null,
     step: "diagnose" as WizardStep,
     callIndex: 0,
     access: nextAccess,
@@ -147,6 +159,7 @@ export const useDesk = create<State>()(
       tagFilters: [],
       analyses: {},
       webEvidence: {},
+      callPreps: {},
       analysisStatus: "ready",
       analysisError: null,
       aiAnalyzedCount: 0,
@@ -157,6 +170,8 @@ export const useDesk = create<State>()(
       enrichError: null,
       noteStatus: "idle",
       noteError: null,
+      prepStatus: "idle",
+      prepError: null,
       loadDemoBook: () => {
         const access = get().access;
         if (!canUseDesk(access) && access.plan !== "none") {
@@ -255,11 +270,11 @@ export const useDesk = create<State>()(
           .ranked()
           .filter((p) => p.silenceBucket !== "do_not_cold_call" && Boolean(p.phone || p.email))
           .slice(0, count);
-        if (!ranked.length) return;
+        if (!ranked.length) return false;
         const allowedTags = get().allowedTags;
         if (!allowedTags.length) {
           set({ enrichStatus: "error", enrichError: "Select at least one allowed tag." });
-          return;
+          return false;
         }
         set({ enrichStatus: "running", enrichError: null });
 
@@ -333,6 +348,7 @@ export const useDesk = create<State>()(
               : null,
             aiAnalyzedCount: rows.length,
           });
+          return true;
         } catch (error) {
           set({
             enrichStatus: "error",
@@ -341,11 +357,198 @@ export const useDesk = create<State>()(
                 ? error.message
                 : "AI enrichment failed. Local ranking remains available.",
           });
+          return false;
         }
       },
-      deepenTopProspects: async (count = 25) => {
-        // Keep for compatibility; route through import enrichment.
-        await get().enrichImportedBook(count);
+      deepenTopProspects: async (count = 25) => get().enrichImportedBook(count),
+      buildWeekWithAi: async (n) => {
+        const budget = n ?? get().weekBudget;
+        // Enrich a shortlist large enough to rank a strong week, not the whole book.
+        const enrichCount = Math.min(40, Math.max(budget * 3, 20));
+        await get().enrichImportedBook(enrichCount);
+        // Always build the week — AI failure still yields a rules-based list.
+        get().buildWeekPlan(budget);
+      },
+      openCall: (id) => {
+        const campaign = get().campaign;
+        if (!campaign) return;
+        const index = campaign.prospectIds.indexOf(id);
+        if (index < 0) return;
+        set({ callIndex: index, step: "call", prepError: null });
+        void get().prepareCall(id);
+      },
+      prepareCall: async (id, force = false) => {
+        if (!force && get().callPreps[id]) return true;
+        const ranked = get().ranked().find((p) => p.id === id);
+        const prospect = get().prospects.find((p) => p.id === id);
+        if (!prospect || !ranked) return false;
+        set({ prepStatus: "running", prepError: null });
+        try {
+          const response = await fetch("/api/call-prep", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prospect: {
+                id: prospect.id,
+                name: prospect.name,
+                company: prospect.company ?? null,
+                title: prospect.title ?? null,
+                lastTouch: prospect.lastTouch ?? null,
+                notes: prospect.notes ?? null,
+                estimatedValue: prospect.estimatedValue ?? null,
+                emailDomain: prospect.email?.split("@")[1] ?? null,
+                whyCall: ranked.whyCall ?? null,
+              },
+            }),
+          });
+          const body = (await response.json()) as {
+            packet?: CallPrepPacket;
+            error?: string;
+          };
+          if (!response.ok || !body.packet) {
+            throw new Error(body.error ?? "Call prep failed");
+          }
+          const bullets = body.packet.talkBullets.join("\n");
+          set({
+            callPreps: { ...get().callPreps, [id]: body.packet },
+            talkEdits: {
+              ...get().talkEdits,
+              [id]: get().talkEdits[id] || bullets,
+            },
+            prepStatus: "idle",
+            prepError: null,
+          });
+          return true;
+        } catch (error) {
+          // Local fallback brief from file only.
+          const fallback: CallPrepPacket = {
+            prospectId: id,
+            person: {
+              summary:
+                ranked.whyCall ||
+                (prospect.notes?.slice(0, 180) ?? "Limited file notes for this person."),
+              details: [
+                prospect.title ? `Title on file: ${prospect.title}` : "",
+                prospect.lastTouch ? `Last touch: ${prospect.lastTouch}` : "",
+                prospect.estimatedValue ? `Value signal: ${prospect.estimatedValue}` : "",
+              ].filter(Boolean),
+              sources: [],
+            },
+            company: {
+              summary: prospect.company
+                ? `${prospect.company} — public verify unavailable; using file only.`
+                : "No company on file.",
+              details: [],
+              sources: [],
+            },
+            talkBullets: [
+              ranked.whyCall,
+              prospect.company ? `Company on file: ${prospect.company}` : "Confirm company/role",
+              "Ask what changed since last contact",
+            ].filter(Boolean) as string[],
+            identityStatus: "file_only",
+            identityNote:
+              error instanceof Error
+                ? error.message
+                : "Could not run AI verify; showing file brief.",
+            preparedAt: new Date().toISOString(),
+          };
+          set({
+            callPreps: { ...get().callPreps, [id]: fallback },
+            talkEdits: {
+              ...get().talkEdits,
+              [id]: get().talkEdits[id] || fallback.talkBullets.join("\n"),
+            },
+            prepStatus: "error",
+            prepError: fallback.identityNote,
+          });
+          return false;
+        }
+      },
+      logFreeformOutcome: async (id, freeText) => {
+        const prospect = get().prospects.find((p) => p.id === id);
+        const ranked = get().ranked().find((p) => p.id === id);
+        if (!prospect) return false;
+        const text = freeText.trim();
+        if (!text) return false;
+        set({ noteStatus: "running", noteError: null });
+        try {
+          const response = await fetch("/api/log-outcome", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              freeText: text,
+              allowedTags: get().allowedTags,
+              prospect: {
+                id: prospect.id,
+                name: prospect.name,
+                company: prospect.company ?? null,
+                title: prospect.title ?? null,
+                notes: prospect.notes ?? null,
+                whyCall: ranked?.whyCall ?? prospect.whyCallOverride ?? null,
+              },
+            }),
+          });
+          const body = (await response.json()) as {
+            outcome?: Outcome;
+            reasonHeld?: "yes" | "stale" | "";
+            summaryNote?: string;
+            tags?: InsightTag[];
+            error?: string;
+          };
+          if (!response.ok) throw new Error(body.error ?? "Could not log outcome");
+
+          const stamp = new Date().toISOString().slice(0, 10);
+          const summary = body.summaryNote?.trim() || text;
+          const prospects = get().prospects.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  notes: [p.notes?.trim(), `[${stamp}] ${summary}`].filter(Boolean).join("\n\n"),
+                  lastTouch: stamp,
+                  enrichmentTags: body.tags?.length ? body.tags : p.enrichmentTags,
+                }
+              : p,
+          );
+          set({
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            analyses: analyzeBookLocally(rankProspects(prospects, get().outcomes)),
+            outcomes: {
+              ...get().outcomes,
+              [id]: body.outcome ?? "called",
+            },
+            reasonHeld: {
+              ...get().reasonHeld,
+              ...(body.reasonHeld ? { [id]: body.reasonHeld } : {}),
+            },
+            noteStatus: "idle",
+            noteError: null,
+          });
+          return true;
+        } catch (error) {
+          const stamp = new Date().toISOString().slice(0, 10);
+          const prospects = get().prospects.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  notes: [p.notes?.trim(), `[${stamp}] ${text}`].filter(Boolean).join("\n\n"),
+                  lastTouch: stamp,
+                }
+              : p,
+          );
+          set({
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            outcomes: { ...get().outcomes, [id]: "called" },
+            noteStatus: "error",
+            noteError:
+              error instanceof Error
+                ? `${error.message} Saved as a note and marked Called.`
+                : "Saved as a note and marked Called.",
+          });
+          return true;
+        }
       },
       appendProspectNote: async (id, noteText) => {
         const prospect = get().prospects.find((p) => p.id === id);
@@ -574,6 +777,7 @@ export const useDesk = create<State>()(
           tagFilters: [],
           analyses: {},
           webEvidence: {},
+          callPreps: {},
           analysisStatus: "ready",
           analysisError: null,
           aiAnalyzedCount: 0,
@@ -581,11 +785,13 @@ export const useDesk = create<State>()(
           enrichError: null,
           noteStatus: "idle",
           noteError: null,
+          prepStatus: "idle",
+          prepError: null,
           // Keep access + tag vocabulary across books.
         }),
     }),
     {
-      name: "reactivation-desk-v6",
+      name: "reactivation-desk-v7",
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<State>),
@@ -595,6 +801,8 @@ export const useDesk = create<State>()(
         enrichError: null,
         noteStatus: "idle",
         noteError: null,
+        prepStatus: "idle",
+        prepError: null,
       }),
     },
   ),
