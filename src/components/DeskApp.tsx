@@ -439,17 +439,7 @@ export function DeskApp() {
             >
               Upload CSV
             </button>
-            <a className="btn ghost" href="/southeast-small-business-test-book.csv" download>
-              Download SE small-business CSV
-            </a>
-            <a className="btn ghost" href="/public-figures-test-book.csv" download>
-              Download public-figures CSV
-            </a>
           </div>
-          <p className="muted tiny">
-            Example books use real publicly reported people with synthetic phones/emails — for product
-            testing only, not outreach.
-          </p>
           {!canImport && access.plan !== "none" && (
             <p className="error">
               Sprint already used. Choose Unlimited above, or apply promo UNLIMITED.
