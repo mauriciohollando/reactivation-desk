@@ -2148,6 +2148,45 @@ select:focus {
   font-size: 1.1rem;
 }
 
+.lab-protocol {
+  margin: 1rem 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.lab-protocol ol {
+  margin: 0.45rem 0 0.8rem;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.lab-scorecard {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #e5eaf1;
+}
+
+.lab-scorecard small {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--text-tertiary);
+  font-size: 0.62rem;
+  line-height: 1.4;
+}
+
+.lab-link {
+  display: inline-flex;
+  margin-top: 0.55rem;
+}
+
+.ai-analysis-action .lab-link {
+  width: 100%;
+  justify-content: center;
+}
+
 @media (max-width: 1120px) {
   .lab-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

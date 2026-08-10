@@ -55,6 +55,8 @@ type State = {
   deepenTopProspects: (count?: number) => Promise<void>;
   refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (n?: WeekBudget) => void;
+  /** Apply an Experiment Lab pick list as this week's campaign without changing the ranker. */
+  applyExperimentWeek: (prospectIds: string[], label: string) => void;
   clearSelection: () => void;
   setOutcome: (id: string, outcome: Outcome) => void;
   setTalkEdit: (id: string, text: string) => void;
@@ -309,6 +311,25 @@ export const useDesk = create<State>()(
           campaign: {
             id: `camp-${Date.now()}`,
             name: `Week of ${new Date().toISOString().slice(0, 10)}`,
+            createdAt: new Date().toISOString(),
+            prospectIds: top,
+          },
+          step: "plan",
+          callIndex: 0,
+        });
+      },
+      applyExperimentWeek: (prospectIds, label) => {
+        const known = new Set(get().prospects.map((p) => p.id));
+        const top = prospectIds.filter((id) => known.has(id)).slice(0, 20);
+        if (!top.length) return;
+        const weekBudget: WeekBudget =
+          top.length <= 5 ? 5 : top.length <= 10 ? 10 : 20;
+        set({
+          weekBudget,
+          selectedIds: top,
+          campaign: {
+            id: `camp-exp-${Date.now()}`,
+            name: `Lab pick · ${label} · ${new Date().toISOString().slice(0, 10)}`,
             createdAt: new Date().toISOString(),
             prospectIds: top,
           },

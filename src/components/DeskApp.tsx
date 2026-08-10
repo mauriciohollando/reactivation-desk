@@ -311,14 +311,14 @@ export function DeskApp() {
           </div>
         </div>
         <div className="topbar-actions">
-          <Link className="btn ghost" href="/compare">
-            Ranking lab
-          </Link>
           <button type="button" className="linkish" onClick={() => setShowPricing((v) => !v)}>
             {showPricing ? "Hide pricing" : "Pricing"}
           </button>
           <Link className="btn ghost" href="/memo">
             Decision memo
+          </Link>
+          <Link className="btn ghost" href="/compare">
+            Ranking Lab
           </Link>
           {prospects.length > 0 && (
             <button type="button" className="btn ghost" onClick={resetAll}>
@@ -482,6 +482,9 @@ export function DeskApp() {
                 Sends only those 25 rows directly to the configured OpenAI model. No web search in this
                 step.
               </small>
+              <Link className="btn ghost small lab-link" href="/compare">
+                Compare ranking policies
+              </Link>
             </div>
             {aiResults.records.length > 0 && (
               <div className="ai-results" ref={aiResultsRef}>

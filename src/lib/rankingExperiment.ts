@@ -1,3 +1,4 @@
+import type { ChallengeLabel } from "./experimentChallengeBook";
 import type { Prospect, RankedProspect } from "./types";
 
 export const AI_RANKING_STRATEGIES = [
@@ -9,6 +10,7 @@ export const AI_RANKING_STRATEGIES = [
 export type AiRankingStrategy = (typeof AI_RANKING_STRATEGIES)[number];
 export type RankingStrategy = "deterministic" | AiRankingStrategy;
 
+/** Full candidate used by the Lab UI and deterministic arm. */
 export type RankingCandidate = {
   id: string;
   name: string;
@@ -25,6 +27,21 @@ export type RankingCandidate = {
   reachability: number;
   evidenceConfidence: number;
   tags: string[];
+};
+
+/** Fields sent to AI arms — no baseline ranks/scores so models cannot shadow rules. */
+export type FairAiCandidate = {
+  id: string;
+  name: string;
+  company?: string;
+  title?: string;
+  segment?: string;
+  source?: string;
+  lastTouch?: string;
+  notes?: string;
+  estimatedValue?: string;
+  phonePresent: boolean;
+  emailPresent: boolean;
 };
 
 export type ExperimentPick = {
@@ -49,6 +66,16 @@ export type RankingMetrics = {
   averageEvidence: number;
   weakFilePicks: number;
   baselineOverlap: number;
+};
+
+export type ChallengeScorecard = {
+  preferredHits: number;
+  verifyLeaks: number;
+  waitLeaks: number;
+  excludeLeaks: number;
+  keywordMissRecoveries: number;
+  timingTrapMistakes: number;
+  labeledPicks: number;
 };
 
 export const STRATEGY_META: Record<
@@ -81,6 +108,9 @@ export const STRATEGY_META: Record<
   },
 };
 
+export const EXPERIMENT_SHORTLIST_SIZE = 50;
+export const EXPERIMENT_PICK_COUNT = 10;
+
 export function isEligibleForExperiment(p: RankedProspect) {
   return (
     p.silenceBucket !== "do_not_cold_call" &&
@@ -91,7 +121,7 @@ export function isEligibleForExperiment(p: RankedProspect) {
 export function buildRankingCandidates(
   ranked: RankedProspect[],
   evidenceConfidence: Record<string, number>,
-  limit = 24,
+  limit = EXPERIMENT_SHORTLIST_SIZE,
 ): RankingCandidate[] {
   return ranked
     .filter(isEligibleForExperiment)
@@ -115,9 +145,32 @@ export function buildRankingCandidates(
     }));
 }
 
+/** Strip scores/ranks before sending candidates to AI ranking arms. */
+export function toFairAiCandidates(
+  candidates: RankingCandidate[],
+  rankedById: Map<string, RankedProspect>,
+): FairAiCandidate[] {
+  return candidates.map((candidate) => {
+    const full = rankedById.get(candidate.id);
+    return {
+      id: candidate.id,
+      name: candidate.name,
+      company: candidate.company,
+      title: candidate.title,
+      segment: candidate.segment,
+      source: candidate.source,
+      lastTouch: candidate.lastTouch,
+      notes: candidate.notes,
+      estimatedValue: candidate.estimatedValue,
+      phonePresent: Boolean(full?.phone),
+      emailPresent: Boolean(full?.email),
+    };
+  });
+}
+
 export function buildDeterministicResult(
   candidates: RankingCandidate[],
-  count = 10,
+  count = EXPERIMENT_PICK_COUNT,
   selectedIds?: string[],
 ): RankingExperimentResult {
   const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
@@ -148,7 +201,7 @@ export function buildDeterministicResult(
 export function normalizeExperimentPicks(
   picks: ExperimentPick[],
   candidates: RankingCandidate[],
-  count = 10,
+  count = EXPERIMENT_PICK_COUNT,
 ) {
   const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const seen = new Set<string>();
@@ -213,6 +266,48 @@ export function calculateRankingMetrics(
       (p) => p.tags.includes("Thin file") || p.evidenceConfidence < 50,
     ).length,
     baselineOverlap: selected.filter((p) => baselineIds.includes(p.id)).length,
+  };
+}
+
+export function calculateChallengeScorecard(
+  result: RankingExperimentResult,
+  labels: Map<string, ChallengeLabel>,
+): ChallengeScorecard {
+  let preferredHits = 0;
+  let verifyLeaks = 0;
+  let waitLeaks = 0;
+  let excludeLeaks = 0;
+  let keywordMissRecoveries = 0;
+  let timingTrapMistakes = 0;
+  let labeledPicks = 0;
+
+  for (const pick of result.picks) {
+    const label = labels.get(pick.prospectId);
+    if (!label) continue;
+    labeledPicks += 1;
+    if (label.expectedAction === "call_now") preferredHits += 1;
+    if (label.expectedAction === "verify_first") verifyLeaks += 1;
+    if (label.expectedAction === "wait") waitLeaks += 1;
+    if (label.expectedAction === "exclude") excludeLeaks += 1;
+    if (
+      label.trapType === "keyword_miss" &&
+      label.expectedAction === "call_now"
+    ) {
+      keywordMissRecoveries += 1;
+    }
+    if (label.trapType === "timing_trap" && label.expectedAction === "wait") {
+      timingTrapMistakes += 1;
+    }
+  }
+
+  return {
+    preferredHits,
+    verifyLeaks,
+    waitLeaks,
+    excludeLeaks,
+    keywordMissRecoveries,
+    timingTrapMistakes,
+    labeledPicks,
   };
 }
 
