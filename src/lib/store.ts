@@ -12,6 +12,10 @@ import {
 import { buildDemoAdvisorBook } from "./demoBook";
 import { analyzeBookLocally, balancedCallable } from "./analysisEngine";
 import type { ProspectAnalysis, WebEvidencePacket } from "./analysisTypes";
+import {
+  localBriefFillIds,
+  shortlistForBrief,
+} from "./briefMatch";
 import type { CallPrepPacket } from "./callPrepTypes";
 import type { InsightTag } from "./insightTags";
 import {
@@ -394,7 +398,8 @@ export const useDesk = create<State>()(
             ...ranked.filter((p) => p.silenceBucket === "handle_with_care"),
           ];
         }
-        const shortlist = ranked.slice(0, 50);
+        // Prefer people who match the brief text before plain rank order.
+        const shortlist = shortlistForBrief(ranked, brief, 80);
         if (!shortlist.length) {
           set({
             enrichStatus: "error",
@@ -453,7 +458,19 @@ export const useDesk = create<State>()(
             throw new Error(body.error ?? "Campaign week failed");
           }
 
-          const byId = new Map(body.picks.map((p) => [p.prospectId, p]));
+          // Model occasionally repeats the same prospectId — keep first/best only.
+          const seen = new Set<string>();
+          const uniquePicks = body.picks.filter((pick) => {
+            if (seen.has(pick.prospectId)) return false;
+            if (!get().prospects.some((p) => p.id === pick.prospectId)) return false;
+            seen.add(pick.prospectId);
+            return true;
+          });
+          let pickIds = uniquePicks.map((p) => p.prospectId);
+          // If AI under-fills, add other brief matches from the book (file-grounded).
+          pickIds = localBriefFillIds(ranked, brief, pickIds, budget);
+
+          const byId = new Map(uniquePicks.map((p) => [p.prospectId, p]));
           const prospects = get().prospects.map((p) => {
             const pick = byId.get(p.id);
             if (!pick) return p;
@@ -466,15 +483,6 @@ export const useDesk = create<State>()(
                 : pick.whySupport,
             };
           });
-          // Model occasionally repeats the same prospectId — keep first/best only.
-          const seen = new Set<string>();
-          const uniquePicks = body.picks.filter((pick) => {
-            if (seen.has(pick.prospectId)) return false;
-            if (!get().prospects.some((p) => p.id === pick.prospectId)) return false;
-            seen.add(pick.prospectId);
-            return true;
-          });
-          const pickIds = uniquePicks.map((p) => p.prospectId);
 
           set({
             prospects,
@@ -488,12 +496,14 @@ export const useDesk = create<State>()(
               prospectIds: pickIds,
             },
             weekBudget: budget,
+            // Week list is already curated — do not silently hide rows with Ready-step filters.
+            tagFilters: [],
             campaignInterpretedAs: body.interpretedAs ?? brief,
             enrichStatus: "complete",
             enrichError: pickIds.length
               ? null
               : "No strong matches for that brief. Try broader wording or clear the prompt.",
-            aiAnalyzedCount: pickIds.length,
+            aiAnalyzedCount: uniquePicks.length,
             step: pickIds.length ? "plan" : "diagnose",
             callIndex: 0,
           });
@@ -867,6 +877,8 @@ export const useDesk = create<State>()(
             createdAt: new Date().toISOString(),
             prospectIds: top,
           },
+          // Filters may reorder who gets into the week; do not hide week rows afterward.
+          tagFilters: [],
           step: "plan",
           callIndex: 0,
         });

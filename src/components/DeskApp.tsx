@@ -134,13 +134,6 @@ export function DeskApp() {
     return rows;
   }, [campaign, rankedLive]);
 
-  const filteredCampaignRows = useMemo(() => {
-    if (!tagFilters.length) return campaignRows;
-    return campaignRows.filter((p) =>
-      tagFilters.some((f) => p.tags.some((t) => t.id === f)),
-    );
-  }, [campaignRows, tagFilters]);
-
   const contacted = campaignRows.filter(
     (p) => (outcomes[p.id] ?? p.outcome) !== "queued",
   ).length;
@@ -516,9 +509,10 @@ export function DeskApp() {
               disabled={enrichStatus === "running"}
               placeholder='e.g. “Find automotive / dealer companies” or “People with a warm connection or referral to me”'
             />
-            <p className="muted tiny">
-              Leave blank for the default ranking. With a prompt, AI curates the list from notes and
-              tags only — it will not invent matches.
+              <p className="muted tiny">
+              Leave blank for the default ranking. With a prompt, AI curates who fits that week from
+              your file (and well-known company identity). Focus chips above only influence the
+              default ranking — they are cleared once the week is built.
             </p>
           </div>
 
@@ -588,11 +582,14 @@ export function DeskApp() {
           )}
 
           <div className="plan-list">
-            {filteredCampaignRows.map((p, index) => {
+            {campaignRows.length === 0 && (
+              <p className="muted">No people in this week yet. Go back and rebuild.</p>
+            )}
+            {campaignRows.map((p, index) => {
               const aiReason = Boolean(p.whyCallOverride);
               const outcome = outcomes[p.id] ?? p.outcome;
               return (
-              <article key={`${p.id}-${index}`} className="plan-item">
+              <article key={p.id} className="plan-item">
                 <div className="plan-index">
                   {index + 1}
                 </div>

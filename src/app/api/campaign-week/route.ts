@@ -34,7 +34,7 @@ const inputSchema = z.object({
       }),
     )
     .min(1)
-    .max(50),
+    .max(80),
 });
 
 const weekSchema = z.object({
@@ -93,11 +93,13 @@ The advisor's campaign brief describes what kind of week they want (sector, warm
 Rules:
 - Select at most ${budget} people who BEST match the brief using ONLY evidence in the supplied fields.
 - Never invent industry, relationship, or product interest. If evidence is weak, lower fit or skip.
+- You MAY use well-known public company identity (e.g. Figma/OpenAI/Microsoft = software) when the company name is in the file. Do not invent private facts.
 - "Connected to me" / warm means referral source, prior inbound, mutual intro, or explicit relationship notes — not assumed LinkedIn graphs.
-- Sector/industry matches need company, title, segment, or notes support.
+- Sector/industry matches need company, title, segment, notes, or clear public company identity support.
 - Prefer safe_reopen over handle_with_care when preferWarm is true and fit is similar.
 - Never pick do_not_cold_call.
-- whyCall must be concrete and grounded; fitNote explains brief match in one short line.
+- whyCall must be concrete, grounded, and UNIQUE per person — mention their company or a distinctive file fact. Never reuse the same sentence across picks.
+- fitNote explains brief match in one short line (why this person fits the brief).
 - Assign ONLY tags from the allowed vocabulary with verbatim cites when possible.
 - Return picks ordered best-first. Each prospectId at most once. If fewer than ${budget} strong matches exist, return fewer — do not pad with weak guesses or repeats.
 - interpretedAs: one plain sentence restating how you understood the brief.
