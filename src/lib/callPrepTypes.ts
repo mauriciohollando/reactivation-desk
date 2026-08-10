@@ -28,8 +28,13 @@ export type CallPrepPacket = {
   person: CallBriefSection;
   company: CallBriefSection;
   saleHighlights: SaleHighlight[];
+  /** Why this person is worth dialing now (lead quality) */
+  leadWhy: string;
+  /** What planning / insurance / wealth conversations to explore */
+  offerFocus: string;
   /** One-line coaching on how to open, given file + public context */
   approachNote: string;
+  /** Sales coaching bullets — not company encyclopedia facts */
   talkBullets: string[];
   identityStatus: "matched" | "possible" | "unresolved" | "file_only";
   identityNote: string;
@@ -67,6 +72,9 @@ export function normalizeCallPrepPacket(packet: CallPrepPacket): CallPrepPacket 
     person: normalizeBriefSection(packet.person),
     company: normalizeBriefSection(packet.company),
     saleHighlights: packet.saleHighlights ?? [],
+    leadWhy: packet.leadWhy ?? "",
+    offerFocus: packet.offerFocus ?? "",
     approachNote: packet.approachNote ?? "",
+    talkBullets: packet.talkBullets ?? [],
   };
 }

@@ -2811,6 +2811,20 @@ select:focus {
   background: #f7fbff;
 }
 
+.sell-angles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.55rem 0 0.35rem;
+}
+
+.sell-angles p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
 .talk-points ul {
   margin: 0.45rem 0 0;
   padding-left: 1.15rem;

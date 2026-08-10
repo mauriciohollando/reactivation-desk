@@ -632,11 +632,13 @@ export const useDesk = create<State>()(
             source: "ai",
           });
           const bullets = packet.talkBullets.join("\n");
+          const priorTalk = get().talkEdits[id];
           set({
             callPreps: { ...get().callPreps, [id]: packet },
             talkEdits: {
               ...get().talkEdits,
-              [id]: get().talkEdits[id] || bullets,
+              // On re-verify, refresh coaching bullets; keep manual edits on first success only.
+              [id]: force || !priorTalk ? bullets : priorTalk,
             },
             prepStatus: "idle",
             prepError: null,
@@ -688,12 +690,20 @@ export const useDesk = create<State>()(
               sources: [],
             },
             saleHighlights: [],
+            leadWhy:
+              ranked.whyCall ||
+              "File shows a reopen candidate — confirm fit before pitching.",
+            offerFocus:
+              "Explore whether buy-sell, key-person, or succession planning is relevant; do not invent demand.",
             approachNote:
               "Open from the file reason only — public verify did not finish for this call.",
             talkBullets: [
-              ranked.whyCall,
-              prospect.company ? `Company on file: ${prospect.company}` : "Confirm company/role",
-              "Ask what changed since last contact",
+              `Why now: ${ranked.whyCall || "Reopen from file notes"}`,
+              "Offer angle: ask if buy-sell / key-person / succession planning is on their radar",
+              "Ask: what changed in the business since we last spoke?",
+              prospect.company
+                ? `Caution: confirm role at ${prospect.company} before pitching`
+                : "Caution: confirm company and role before pitching",
             ].filter(Boolean) as string[],
             identityStatus: "file_only",
             identityNote: "Showing file brief only — AI verify did not finish.",

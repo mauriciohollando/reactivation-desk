@@ -52,8 +52,10 @@ const prepSchema = z.object({
   person: briefSchema,
   company: briefSchema,
   saleHighlights: z.array(highlightSchema).max(4),
+  leadWhy: z.string().max(320),
+  offerFocus: z.string().max(320),
   approachNote: z.string().max(320),
-  talkBullets: z.array(z.string().max(320)).min(3).max(7),
+  talkBullets: z.array(z.string().max(320)).min(4).max(7),
   identityStatus: z.enum(["matched", "possible", "unresolved", "file_only"]),
   identityNote: z.string().max(320),
 });
@@ -173,9 +175,11 @@ export async function POST(request: Request) {
       input: [
         {
           role: "system",
-          content: `You prepare a short, practical call brief for a financial advisor selling planning / insurance / wealth conversations to business owners and executives.
+          content: `You prepare a short call brief for a financial advisor who sells planning, insurance, and wealth conversations to business owners and executives.
 
-Every detail must answer: what exactly, and how do we know?
+Company research is supporting context only. The advisor already sees company facts elsewhere. Your job is to coach the SALE.
+
+Every factual detail must answer: what exactly, and how do we know?
 
 Rules:
 - Ground person.summary first in CRM/file notes and the why-call reason.
@@ -186,9 +190,18 @@ Rules:
   - public: only from search results. cite = publisher or page title. url = real https URL from search.
 - Never promote vague file crumbs as hard facts. If notes say "webinar" / "conference" with no event name or date, either omit or write: "Notes mention webinar attendance — event not named on file".
 - Never invent event names, revenue, ownership, or dates.
-- saleHighlights: 0-4 PUBLIC, linked facts that help the advisor open the call and spot planning relevance (liquidity, growth, leadership change, product/market moves). Each needs text, whyItMatters (advisor angle), publisher, url. Use [] if nothing solid.
-- approachNote: one sentence coaching how to open (file warmth + public hook + caution).
-- talkBullets: 3-7 glanceable bullets — open, public hook, question, preference/caution. Under 140 chars each.
+- saleHighlights: 0-4 PUBLIC linked facts. text = the business fact. whyItMatters = the advisor sales angle (key-person risk, succession, liquidity, buy-sell, deferred comp, executive benefits, cash concentration, growth-stage planning) — never a generic "community engagement" fluff line.
+- leadWhy: 1-2 sentences — why THIS person is a good lead to dial now (file warmth + role + timing). Not a company description.
+- offerFocus: 1-2 sentences — which planning / insurance / wealth conversations to explore on this call. Be concrete (e.g. key-person coverage, buy-sell funding, succession income planning). Do not invent that they asked for a product.
+- approachNote: one sentence on how to open (file warmth + public hook + ask).
+- talkBullets: 4-7 SALES coaching bullets for while dialing. Required mix:
+  1) Why they're worth calling now
+  2) What to explore selling / discussing (advisor offer angle)
+  3) One discovery question
+  4) One caution or preference from the file
+  Optional: public hook used as proof, not as the whole bullet list.
+  FORBIDDEN in talkBullets: repeating what the company does, product feature lists, encyclopedia facts with no sales angle.
+  Keep each bullet under 140 characters.
 - identityStatus is about person↔company match only, not overall evidence quality.
 - identityNote: plain language on match confidence and any synthetic/test-data caveats in the file.
 - person.summary and company.summary: 1-2 short sentences.
@@ -208,7 +221,7 @@ WHY CALL: ${p.whyCall ?? "unknown"}
 NOTES:
 ${notes || "none"}
 
-Return structured evidence with clear file vs public provenance. Prefer a few strong public sale highlights with links over many thin bullets.`,
+Coach the advisor on why to call, what planning conversations to explore, and how to open. Keep company encyclopedia facts in person/company sections and saleHighlights — not in talkBullets.`,
         },
       ],
     });
@@ -224,6 +237,8 @@ Return structured evidence with clear file vs public provenance. Prefer a few st
         person: clipBrief(output.person),
         company: clipBrief(output.company),
         saleHighlights,
+        leadWhy: clip(output.leadWhy, 240),
+        offerFocus: clip(output.offerFocus, 240),
         approachNote: clip(output.approachNote, 220),
         talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
         identityStatus: hasCompany ? output.identityStatus : "file_only",

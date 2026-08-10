@@ -1196,7 +1196,27 @@ function CallMode({
           )}
 
           <div className="talk-points">
-            <span className="block-label">Talk points</span>
+            <span className="block-label">Sell angles for this call</span>
+            <p className="muted tiny" style={{ marginTop: 0 }}>
+              Why they are worth dialing, what to explore selling, and what to ask — not a company
+              summary.
+            </p>
+            {prep && (prep.leadWhy || prep.offerFocus) && (
+              <div className="sell-angles">
+                {prep.leadWhy && (
+                  <p>
+                    <span className="why-label">Why this lead</span>
+                    {prep.leadWhy}
+                  </p>
+                )}
+                {prep.offerFocus && (
+                  <p>
+                    <span className="why-label">What to explore</span>
+                    {prep.offerFocus}
+                  </p>
+                )}
+              </div>
+            )}
             {bullets.length ? (
               <ul>
                 {bullets.map((bullet) => (
@@ -1204,7 +1224,7 @@ function CallMode({
                 ))}
               </ul>
             ) : (
-              <p className="muted">AI talk points will appear here once prep finishes.</p>
+              <p className="muted">Sales talk points will appear here once prep finishes.</p>
             )}
             <details className="notes-history">
               <summary>Edit talk points</summary>
@@ -1212,7 +1232,7 @@ function CallMode({
                 value={talk}
                 onChange={(e) => onTalk(e.target.value)}
                 rows={5}
-                placeholder="One bullet per line"
+                placeholder="One bullet per line — why now, offer angle, question, caution"
               />
             </details>
           </div>
@@ -1313,7 +1333,7 @@ function SaleHighlightsPanel({ highlights }: { highlights: SaleHighlight[] }) {
           <li key={`${item.url}-${item.text}`}>
             <p className="sale-highlight-text">{item.text}</p>
             <p className="sale-highlight-why">
-              <span className="why-label">Why it helps</span>
+              <span className="why-label">Sales angle</span>
               {item.whyItMatters}
             </p>
             <a href={item.url} target="_blank" rel="noreferrer">
