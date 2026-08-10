@@ -7,6 +7,21 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 **Memo:** https://reactivation-desk.vercel.app/memo  
 **Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv
 
+## Ranking lab
+
+`/compare` runs a blinded four-way ranking experiment on the current imported
+book:
+
+1. Current deterministic rules
+2. AI revenue scout
+3. AI trust gate
+4. AI campaign strategist
+
+All arms receive the same deterministic safe candidate set. AI may reorder
+eligible records but cannot override do-not-contact or reachability gates.
+Choose a list before revealing its strategy; the choice is a human preference
+to validate later against meetings per ten calls, not a manufactured model win.
+
 Meeting import demo: generate a local CRM export with `npm run generate:meeting-csv`, then use **Upload CSV** (do not serve it from the site).
 
 ## Guided funnel

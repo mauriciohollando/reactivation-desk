@@ -311,6 +311,9 @@ export function DeskApp() {
           </div>
         </div>
         <div className="topbar-actions">
+          <Link className="btn ghost" href="/compare">
+            Ranking lab
+          </Link>
           <button type="button" className="linkish" onClick={() => setShowPricing((v) => !v)}>
             {showPricing ? "Hide pricing" : "Pricing"}
           </button>

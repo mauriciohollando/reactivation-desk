@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:analysis": "npx tsx scripts/validateAnalysis.ts",
+    "test:ranking": "npx tsx scripts/validateRankingExperiment.ts",
     "generate:meeting-csv": "npx tsx scripts/generateMeetingCrmCsv.ts"
   },
   "dependencies": {
