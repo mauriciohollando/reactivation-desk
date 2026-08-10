@@ -16,6 +16,7 @@ const inputSchema = z.object({
   budget: z.number().int().min(1).max(40),
   preferWarm: z.boolean(),
   allowedTags: z.array(allowedTagSchema).min(1).max(40),
+  practiceThesis: z.string().max(1200).optional(),
   prospects: z
     .array(
       z.object({
@@ -73,7 +74,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid campaign-week request" }, { status: 400 });
     }
 
-    const { brief, budget, preferWarm, allowedTags, prospects } = parsed.data;
+    const { brief, budget, preferWarm, allowedTags, prospects, practiceThesis } =
+      parsed.data;
     const allowed = new Map(allowedTags.map((t) => [t.id, t]));
     const allowedList = allowedTags.map((t) => `${t.id} (${t.kind}): ${t.label}`).join("\n");
     const byId = new Map(prospects.map((p) => [p.id, p]));
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
           content: `You curate a finishable weekly call list for a financial advisor from an imported book.
 
 The advisor's campaign brief describes what kind of week they want (sector, warmth, theme, timing, etc.).
+When a practice thesis is provided, prefer people who fit that audience and offer conversations — still grounded in the file.
 
 Rules:
 - Select at most ${budget} people who BEST match the brief using ONLY evidence in the supplied fields.
@@ -107,7 +110,7 @@ Rules:
         },
         {
           role: "user",
-          content: `Campaign brief: ${brief}
+          content: `${practiceThesis ? `${practiceThesis}\n\n` : ""}Campaign brief: ${brief}
 
 preferWarm: ${preferWarm}
 budget: ${budget}

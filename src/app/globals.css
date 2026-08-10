@@ -3158,3 +3158,192 @@ select:focus {
 .campaign-brief .tiny {
   margin: 0.4rem 0 0;
 }
+
+/* ——— Practice thesis / curation ——— */
+.thesis-top-btn {
+  max-width: 7.5rem;
+}
+
+.thesis-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin: 0.65rem 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.thesis-inline .block-label {
+  margin: 0;
+}
+
+.thesis-modal-backdrop,
+.thesis-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.thesis-drawer-backdrop {
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.thesis-modal,
+.thesis-drawer {
+  width: min(560px, 100%);
+  max-height: min(90vh, 760px);
+  overflow: auto;
+  padding: 1.35rem 1.35rem 1.2rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+}
+
+.thesis-drawer {
+  width: min(420px, 100%);
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+}
+
+.thesis-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.thesis-drawer-head h2,
+.thesis-modal h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.thesis-modal-kicker {
+  margin: 0 0 0.25rem;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.thesis-modal-lead {
+  margin: 0 0 0.85rem;
+}
+
+.thesis-insight-list {
+  margin: 0 0 1rem;
+  padding: 0 0 0 1.1rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.thesis-insight-list li + li {
+  margin-top: 0.35rem;
+}
+
+.thesis-guess {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(165deg, #f7fbff, var(--accent-soft));
+  border: 1px solid #d7e6f6;
+}
+
+.thesis-guess p {
+  margin: 0.25rem 0 0.45rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.thesis-confidence {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.thesis-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.thesis-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.thesis-form fieldset,
+.thesis-drawer fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.thesis-form legend,
+.thesis-drawer legend {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.thesis-form label,
+.thesis-drawer label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.thesis-form input,
+.thesis-drawer input {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  font: inherit;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.thesis-drawer-summary {
+  margin: 0.5rem 0 1rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.thesis-drawer .filters {
+  margin-bottom: 0.35rem;
+}
+

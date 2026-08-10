@@ -39,6 +39,21 @@ import {
   uniqueAllowedTags,
   type AllowedTag,
 } from "./tagPresets";
+import {
+  allowedTagsForThesis,
+  applyAnswersToThesis,
+  defaultPracticeThesis,
+  inferThesisFromBook,
+  mergeUrlDraftIntoThesis,
+  normalizeThesis,
+  tagPresetForThesis,
+  thesisPromptBlock,
+  thesisSummaryLine,
+  type AudienceId,
+  type BookInsight,
+  type OfferId,
+  type PracticeThesis,
+} from "./practiceThesis";
 import type {
   Campaign,
   ImportSummary,
@@ -79,6 +94,11 @@ type State = {
   allowedTags: AllowedTag[];
   tagPresetId: string;
   access: AccessState;
+  practiceThesis: PracticeThesis;
+  bookInsights: BookInsight[];
+  thesisReviewPending: boolean;
+  thesisStatus: "idle" | "running" | "error";
+  thesisError: string | null;
   campaignBrief: string;
   campaignInterpretedAs: string | null;
   enrichStatus: "idle" | "running" | "complete" | "error";
@@ -101,6 +121,20 @@ type State = {
   unlockWithPromo: (code: string) => { ok: boolean; error?: string };
   /** Prototype helper — wipe paid unlock so the compare page is testable again. */
   clearAccess: () => void;
+  confirmThesisReview: (input: {
+    audience: AudienceId;
+    offers: OfferId[];
+    customOffer: string;
+    companyUrl: string;
+    linkedinUrl: string;
+    enrichFromUrls: boolean;
+  }) => Promise<void>;
+  skipThesisReview: () => void;
+  updatePracticeThesis: (patch: Partial<PracticeThesis>) => void;
+  enrichThesisFromUrls: (urls?: {
+    companyUrl?: string;
+    linkedinUrl?: string;
+  }) => Promise<boolean>;
   toggleSelect: (id: string) => void;
   toggleTagFilter: (id: string) => void;
   clearTagFilters: () => void;
@@ -178,7 +212,12 @@ function consumeSprintWeek(access: AccessState): AccessState {
 const SPRINT_WEEK_EXHAUSTED =
   "Sprint includes 3 polished weeks. Unlock Unlimited to keep building weeks, or enter promo UNLIMITED.";
 
-function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessState) {
+function applyBook(
+  prospects: Prospect[],
+  sourceLabel: string,
+  access: AccessState,
+  priorThesis: PracticeThesis,
+) {
   // Drop per-row CSV raw maps — they duplicate every field and blow storage/memory.
   const slim = prospects.map((p) => ({ ...p, raw: {} as Record<string, string> }));
   const ranked = rankProspects(slim, {});
@@ -187,10 +226,16 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     current.plan === "sprint" && canImportBook(current)
       ? { ...current, sprintBooksUsed: current.sprintBooksUsed + 1 }
       : current;
+  const importSummary = buildImportSummary(prospects);
+  const { thesis, insights } = inferThesisFromBook(
+    slim,
+    importSummary,
+    normalizeThesis(priorThesis),
+  );
   return {
     prospects: slim,
     sourceLabel,
-    importSummary: buildImportSummary(prospects),
+    importSummary,
     selectedIds: [] as string[],
     campaign: null,
     outcomes: {} as Record<string, Outcome>,
@@ -215,6 +260,13 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     step: "diagnose" as WizardStep,
     callIndex: 0,
     access: nextAccess,
+    practiceThesis: thesis,
+    bookInsights: insights,
+    thesisReviewPending: true,
+    thesisStatus: "idle" as const,
+    thesisError: null as string | null,
+    allowedTags: allowedTagsForThesis(thesis),
+    tagPresetId: tagPresetForThesis(thesis),
   };
 }
 
@@ -243,6 +295,11 @@ export const useDesk = create<State>()(
       allowedTags: defaultPreset.tags,
       tagPresetId: defaultPreset.id,
       access: emptyAccess(),
+      practiceThesis: defaultPracticeThesis(),
+      bookInsights: [],
+      thesisReviewPending: false,
+      thesisStatus: "idle",
+      thesisError: null,
       campaignBrief: "",
       campaignInterpretedAs: null,
       enrichStatus: "idle",
@@ -271,6 +328,7 @@ export const useDesk = create<State>()(
             buildDemoAdvisorBook(),
             "Sample advisor book",
             access,
+            get().practiceThesis,
           ),
           weekBudget: 10,
         });
@@ -287,7 +345,9 @@ export const useDesk = create<State>()(
           });
           return;
         }
-        set({ ...applyBook(prospects, sourceLabel, access) });
+        set({
+          ...applyBook(prospects, sourceLabel, access, get().practiceThesis),
+        });
       },
       setTagPreset: (presetId) => {
         const preset = TAG_PRESETS.find((p) => p.id === presetId) ?? defaultPreset;
@@ -363,7 +423,138 @@ export const useDesk = create<State>()(
           prepError: null,
           preparingIds: [],
           weekPrep: { status: "idle", done: 0, total: 0 },
+          thesisReviewPending: false,
+          bookInsights: [],
+          thesisStatus: "idle",
+          thesisError: null,
         });
+      },
+      confirmThesisReview: async (input) => {
+        const sourceLabel = get().sourceLabel;
+        let next = applyAnswersToThesis(get().practiceThesis, {
+          audience: input.audience,
+          offers: input.offers,
+          customOffer: input.customOffer,
+        });
+        next = {
+          ...next,
+          companyUrl: input.companyUrl,
+          linkedinUrl: input.linkedinUrl,
+          reviewedForSourceLabel: sourceLabel,
+        };
+        next.summary = thesisSummaryLine(next);
+        set({
+          practiceThesis: next,
+          allowedTags: allowedTagsForThesis(next),
+          tagPresetId: tagPresetForThesis(next),
+          thesisError: null,
+        });
+
+        if (input.enrichFromUrls && (input.companyUrl || input.linkedinUrl)) {
+          const ok = await get().enrichThesisFromUrls({
+            companyUrl: input.companyUrl,
+            linkedinUrl: input.linkedinUrl,
+          });
+          if (!ok) return;
+        }
+
+        set({
+          thesisReviewPending: false,
+          practiceThesis: {
+            ...get().practiceThesis,
+            reviewedForSourceLabel: sourceLabel,
+            confidence: "confirmed",
+          },
+        });
+      },
+      skipThesisReview: () => {
+        set({
+          thesisReviewPending: false,
+          practiceThesis: {
+            ...get().practiceThesis,
+            reviewedForSourceLabel: get().sourceLabel,
+          },
+        });
+      },
+      updatePracticeThesis: (patch) => {
+        const next = normalizeThesis({
+          ...get().practiceThesis,
+          ...patch,
+          confidence: "confirmed",
+          sources: [...new Set([...get().practiceThesis.sources, "manual" as const])],
+          updatedAt: new Date().toISOString(),
+        });
+        next.summary = patch.summary?.trim() || thesisSummaryLine(next);
+        set({
+          practiceThesis: next,
+          allowedTags: allowedTagsForThesis(next),
+          tagPresetId: tagPresetForThesis(next),
+          thesisError: null,
+        });
+      },
+      enrichThesisFromUrls: async (urls) => {
+        const current = get().practiceThesis;
+        const companyUrl = (urls?.companyUrl ?? current.companyUrl).trim();
+        const linkedinUrl = (urls?.linkedinUrl ?? current.linkedinUrl).trim();
+        if (!companyUrl && !linkedinUrl) {
+          set({ thesisStatus: "error", thesisError: "Add a company or LinkedIn URL." });
+          return false;
+        }
+        set({ thesisStatus: "running", thesisError: null });
+        try {
+          const response = await fetch("/api/practice-profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyUrl: companyUrl || null,
+              linkedinUrl: linkedinUrl || null,
+              bookHints: get().bookInsights.map((i) => i.text),
+            }),
+          });
+          const body = (await response.json()) as {
+            draft?: {
+              audience: AudienceId;
+              offers: OfferId[];
+              customOffer: string;
+              summary: string;
+              rationale: string;
+            };
+            error?: string;
+          };
+          if (!response.ok || !body.draft) {
+            throw new Error(body.error ?? `Profile enrich failed (${response.status})`);
+          }
+          const merged = mergeUrlDraftIntoThesis(
+            {
+              ...current,
+              companyUrl,
+              linkedinUrl,
+            },
+            body.draft,
+          );
+          set({
+            practiceThesis: {
+              ...merged,
+              reviewedForSourceLabel:
+                current.reviewedForSourceLabel ?? get().sourceLabel,
+            },
+            allowedTags: allowedTagsForThesis(merged),
+            tagPresetId: tagPresetForThesis(merged),
+            thesisStatus: "idle",
+            thesisError: null,
+            thesisReviewPending: false,
+          });
+          return true;
+        } catch (error) {
+          set({
+            thesisStatus: "error",
+            thesisError:
+              error instanceof Error
+                ? error.message
+                : "Could not read those URLs. Try questions instead.",
+          });
+          return false;
+        }
       },
       toggleSelect: (id) => {
         const cur = get().selectedIds;
@@ -402,6 +593,7 @@ export const useDesk = create<State>()(
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   allowedTags,
+                  practiceThesis: thesisPromptBlock(get().practiceThesis),
                   prospects: batch.map((p) => ({
                     id: p.id,
                     name: p.name,
@@ -560,6 +752,7 @@ export const useDesk = create<State>()(
               budget,
               preferWarm,
               allowedTags,
+              practiceThesis: thesisPromptBlock(get().practiceThesis),
               prospects: shortlist.map((p) => ({
                 id: p.id,
                 name: p.name,
@@ -758,6 +951,7 @@ export const useDesk = create<State>()(
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
+                    practiceThesis: thesisPromptBlock(get().practiceThesis),
                     prospect: {
                       id: prospect.id,
                       name: prospect.name,
@@ -845,13 +1039,12 @@ export const useDesk = create<State>()(
                   leadWhy:
                     ranked.whyCall ||
                     "File shows a reopen candidate — confirm fit before pitching.",
-                  offerFocus:
-                    "Explore whether buy-sell, key-person, or succession planning is relevant; do not invent demand.",
+                  offerFocus: `Explore conversations that fit: ${get().practiceThesis.summary} Do not invent demand.`,
                   approachNote:
                     "Open from the file reason only — public verify did not finish for this call.",
                   talkBullets: [
                     `Why now: ${ranked.whyCall || "Reopen from file notes"}`,
-                    "Offer angle: ask if buy-sell / key-person / succession planning is on their radar",
+                    `Offer angle: explore ${get().practiceThesis.summary.replace(/^Curate for [^;]+; reopen for /i, "")}`,
                     "Ask: what changed in the business since we last spoke?",
                     prospect.company
                       ? `Caution: confirm role at ${prospect.company} before pitching`
@@ -1274,7 +1467,7 @@ export const useDesk = create<State>()(
     {
       // Only lightweight prefs survive reloads. Full books + AI packets stay in memory
       // so large CSVs (200–500+ rows) do not blow past localStorage quota (~5MB).
-      name: "reactivation-desk-v9",
+      name: "reactivation-desk-v10",
       partialize: (state) => ({
         access: state.access,
         allowedTags: state.allowedTags,
@@ -1282,6 +1475,7 @@ export const useDesk = create<State>()(
         weekBudget: state.weekBudget,
         preferWarm: state.preferWarm,
         campaignBrief: state.campaignBrief,
+        practiceThesis: state.practiceThesis,
       }),
       storage: createJSONStorage(() => {
         const safe: Storage = {
@@ -1329,6 +1523,7 @@ export const useDesk = create<State>()(
                 "reactivation-desk-v6",
                 "reactivation-desk-v7",
                 "reactivation-desk-v8",
+                "reactivation-desk-v9",
                 key,
               ]) {
                 try {
@@ -1353,6 +1548,13 @@ export const useDesk = create<State>()(
         ...currentState,
         ...partial,
         access: normalizeAccess(partial.access ?? currentState.access),
+        practiceThesis: normalizeThesis(
+          partial.practiceThesis ?? currentState.practiceThesis,
+        ),
+        thesisReviewPending: false,
+        bookInsights: [],
+        thesisStatus: "idle" as const,
+        thesisError: null,
         // Never hydrate a persisted book — those keys are intentionally omitted.
         prospects: currentState.prospects,
         outcomes: currentState.outcomes,
@@ -1388,6 +1590,7 @@ export const useDesk = create<State>()(
           "reactivation-desk-v6",
           "reactivation-desk-v7",
           "reactivation-desk-v8",
+          "reactivation-desk-v9",
         ]) {
           try {
             localStorage.removeItem(key);

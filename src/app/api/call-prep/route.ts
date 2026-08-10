@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const inputSchema = z.object({
+  practiceThesis: z.string().max(1200).optional(),
   prospect: z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -166,6 +167,7 @@ export async function POST(request: Request) {
     }
 
     const p = parsed.data.prospect;
+    const practiceThesis = parsed.data.practiceThesis?.trim();
     const hasCompany = Boolean(p.company?.trim());
     const notes = (p.notes ?? "").slice(0, 2500);
 
@@ -179,9 +181,9 @@ export async function POST(request: Request) {
       input: [
         {
           role: "system",
-          content: `You prepare a short call brief for a financial advisor who sells planning, insurance, and wealth conversations to business owners and executives.
+          content: `You prepare a short call brief for a financial advisor. Prefer the practice thesis for which conversations to explore; default to planning / insurance / wealth with business owners when thesis is absent.
 
-Company research is supporting context only. The advisor already sees company facts elsewhere. Your job is to coach the SALE.
+Company research is supporting context only. The advisor already sees company facts elsewhere. Your job is to coach the SALE — not impersonate the advisor's voice.
 
 Every factual detail must answer: what exactly, and how do we know?
 
@@ -196,7 +198,7 @@ Rules:
 - Never invent event names, revenue, ownership, or dates.
 - saleHighlights: 0-4 PUBLIC linked facts. text = the business fact. whyItMatters = the advisor sales angle (key-person risk, succession, liquidity, buy-sell, deferred comp, executive benefits, cash concentration, growth-stage planning) — never a generic "community engagement" fluff line.
 - leadWhy: 1-2 sentences — why THIS person is a good lead to dial now (file warmth + role + timing). Not a company description.
-- offerFocus: 1-2 sentences — which planning / insurance / wealth conversations to explore on this call. Be concrete (e.g. key-person coverage, buy-sell funding, succession income planning). Do not invent that they asked for a product.
+- offerFocus: 1-2 sentences — which conversations to explore on this call, aligned to the practice thesis when provided. Be concrete. Do not invent that they asked for a product.
 - approachNote: one sentence on how to open (file warmth + public hook + ask).
 - talkBullets: 4-7 SALES coaching bullets for while dialing. Required mix:
   1) Why they're worth calling now
@@ -213,7 +215,7 @@ Rules:
         },
         {
           role: "user",
-          content: `Prepare a call brief as of ${new Date().toISOString().slice(0, 10)}.
+          content: `${practiceThesis ? `${practiceThesis}\n\n` : ""}Prepare a call brief as of ${new Date().toISOString().slice(0, 10)}.
 
 NAME: ${p.name}
 TITLE: ${p.title ?? "unknown"}
@@ -225,7 +227,7 @@ WHY CALL: ${p.whyCall ?? "unknown"}
 NOTES:
 ${notes || "none"}
 
-Coach the advisor on why to call, what planning conversations to explore, and how to open. Keep company encyclopedia facts in person/company sections and saleHighlights — not in talkBullets.`,
+Coach the advisor on why to call, what offer conversations to explore (per thesis), and how to open. Keep company encyclopedia facts in person/company sections and saleHighlights — not in talkBullets.`,
         },
       ],
     });

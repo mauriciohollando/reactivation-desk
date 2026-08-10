@@ -43,6 +43,8 @@ import {
   weekExportRows,
 } from "@/lib/weekFlow";
 import { PlanCompare } from "./PlanCompare";
+import { ThesisEditor } from "./ThesisEditor";
+import { ThesisReviewModal } from "./ThesisReviewModal";
 
 function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
@@ -116,6 +118,15 @@ export function DeskApp() {
   const unlockAccess = useDesk((s) => s.unlockAccess);
   const unlockWithPromo = useDesk((s) => s.unlockWithPromo);
   const clearAccess = useDesk((s) => s.clearAccess);
+  const practiceThesis = useDesk((s) => s.practiceThesis);
+  const bookInsights = useDesk((s) => s.bookInsights);
+  const thesisReviewPending = useDesk((s) => s.thesisReviewPending);
+  const thesisStatus = useDesk((s) => s.thesisStatus);
+  const thesisError = useDesk((s) => s.thesisError);
+  const confirmThesisReview = useDesk((s) => s.confirmThesisReview);
+  const skipThesisReview = useDesk((s) => s.skipThesisReview);
+  const updatePracticeThesis = useDesk((s) => s.updatePracticeThesis);
+  const enrichThesisFromUrls = useDesk((s) => s.enrichThesisFromUrls);
   const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
   const clearTagFilters = useDesk((s) => s.clearTagFilters);
   const campaignBrief = useDesk((s) => s.campaignBrief);
@@ -143,6 +154,7 @@ export function DeskApp() {
   const [promo, setPromo] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
   const [planFocus, setPlanFocus] = useState<"sprint" | "subscription">("sprint");
+  const [thesisEditorOpen, setThesisEditorOpen] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [customBudget, setCustomBudget] = useState("");
   const [nextWeekBusy, setNextWeekBusy] = useState(false);
@@ -310,6 +322,14 @@ export function DeskApp() {
         </div>
         <div className="topbar-actions">
           <span className="access-pill">{accessLabel(access)}</span>
+          <button
+            type="button"
+            className="btn ghost sm thesis-top-btn"
+            title={practiceThesis.summary}
+            onClick={() => setThesisEditorOpen(true)}
+          >
+            Curation
+          </button>
           {prospects.length > 0 && (
             <button type="button" className="btn ghost" onClick={resetAll}>
               New book
@@ -317,6 +337,35 @@ export function DeskApp() {
           )}
         </div>
       </header>
+
+      {thesisReviewPending && prospects.length > 0 && step === "diagnose" && (
+        <ThesisReviewModal
+          thesis={practiceThesis}
+          insights={bookInsights}
+          sourceLabel={sourceLabel}
+          busy={thesisStatus === "running"}
+          error={thesisError}
+          onSkip={skipThesisReview}
+          onConfirm={(input) => void confirmThesisReview(input)}
+        />
+      )}
+
+      <ThesisEditor
+        key={`${practiceThesis.updatedAt ?? "x"}-${thesisEditorOpen}`}
+        thesis={practiceThesis}
+        open={thesisEditorOpen}
+        busy={thesisStatus === "running"}
+        error={thesisError}
+        onClose={() => setThesisEditorOpen(false)}
+        onSave={(patch) => {
+          updatePracticeThesis(patch);
+          setThesisEditorOpen(false);
+        }}
+        onEnrichUrls={async (urls) => {
+          const ok = await enrichThesisFromUrls(urls);
+          if (ok) setThesisEditorOpen(false);
+        }}
+      />
 
       {prospects.length > 0 && step !== "plans" && (
         <nav className="steps" aria-label="Workflow">
@@ -558,6 +607,17 @@ export function DeskApp() {
         <section className="funnel-card diagnose-card">
           <h2>Your book is ready</h2>
           <p className="muted source-line">{sourceLabel}</p>
+          <p className="thesis-inline">
+            <span className="block-label">Curation</span>
+            {practiceThesis.summary}{" "}
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={() => setThesisEditorOpen(true)}
+            >
+              Edit
+            </button>
+          </p>
 
           <div className="stat-row compact">
             <Stat label="In book" value={importSummary.total} />

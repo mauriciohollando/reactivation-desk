@@ -13,6 +13,7 @@ const allowedTagSchema = z.object({
 
 const inputSchema = z.object({
   allowedTags: z.array(allowedTagSchema).min(1).max(40),
+  practiceThesis: z.string().max(1200).optional(),
   prospects: z
     .array(
       z.object({
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
           content: `You enrich a financial advisor's imported prospect book for weekly reactivation.
 
 Write a concrete why-call grounded in the file. Prefer commercial meaning over bare recency.
+Bias why-call and tags toward the advisor's practice thesis (audience + offer conversations) when the file supports it — do not invent fit.
 Assign ONLY tags from the allowed vocabulary. Do not invent tag ids.
 For each assigned tag, include { id, cite } with a short verbatim quote from the record.
 If evidence is thin, use thin_file or skip opportunity tags and say so in whyCall.
@@ -89,7 +91,7 @@ Return one enrichment for every prospectId.`,
         },
         {
           role: "user",
-          content: `Allowed tags:\n${allowedList}\n\nProspects:\n${JSON.stringify(parsed.data.prospects, null, 2)}`,
+          content: `${parsed.data.practiceThesis ? `${parsed.data.practiceThesis}\n\n` : ""}Allowed tags:\n${allowedList}\n\nProspects:\n${JSON.stringify(parsed.data.prospects, null, 2)}`,
         },
       ],
     });
