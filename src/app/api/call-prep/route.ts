@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { getOpenAI } from "@/lib/openai";
-import type { BriefDetail, SaleHighlight } from "@/lib/callPrepTypes";
+import type { BriefDetail, CallPrepPacket, SaleHighlight } from "@/lib/callPrepTypes";
+import {
+  aiValidateCallPrep,
+  heuristicValidateCallPrep,
+} from "@/lib/callPrepValidate";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -231,21 +235,39 @@ Coach the advisor on why to call, what planning conversations to explore, and ho
 
     const saleHighlights = hasCompany ? clipHighlights(output.saleHighlights) : [];
 
+    const draft: CallPrepPacket = heuristicValidateCallPrep({
+      prospectId: p.id,
+      person: clipBrief(output.person),
+      company: clipBrief(output.company),
+      saleHighlights,
+      leadWhy: clip(output.leadWhy, 240),
+      offerFocus: clip(output.offerFocus, 240),
+      approachNote: clip(output.approachNote, 220),
+      talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
+      identityStatus: hasCompany ? output.identityStatus : "file_only",
+      identityNote: clip(output.identityNote, 220),
+      preparedAt: new Date().toISOString(),
+      source: "ai",
+    });
+
+    // Second pass: drop non-sales noise and rewrite coaching fields.
+    let packet = draft;
+    try {
+      packet = heuristicValidateCallPrep(
+        await aiValidateCallPrep(draft, {
+          name: p.name,
+          company: p.company,
+          title: p.title,
+          whyCall: p.whyCall,
+          notes: notes || null,
+        }),
+      );
+    } catch (validationError) {
+      console.error("Call prep validation pass failed; using heuristic draft", validationError);
+    }
+
     return Response.json({
-      packet: {
-        prospectId: p.id,
-        person: clipBrief(output.person),
-        company: clipBrief(output.company),
-        saleHighlights,
-        leadWhy: clip(output.leadWhy, 240),
-        offerFocus: clip(output.offerFocus, 240),
-        approachNote: clip(output.approachNote, 220),
-        talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
-        identityStatus: hasCompany ? output.identityStatus : "file_only",
-        identityNote: clip(output.identityNote, 220),
-        preparedAt: new Date().toISOString(),
-        source: "ai" as const,
-      },
+      packet,
       model: process.env.OPENAI_WEB_MODEL ?? "gpt-4.1-mini",
     });
   } catch (error) {
