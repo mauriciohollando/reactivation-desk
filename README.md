@@ -6,7 +6,8 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 **Repo:** https://github.com/mauriciohollando/reactivation-desk  
 **Memo:** https://reactivation-desk.vercel.app/memo  
 **Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv  
-**Public-figures test CSV (AI verify):** https://reactivation-desk.vercel.app/public-figures-test-book.csv
+**Public-figures test CSV (AI verify):** https://reactivation-desk.vercel.app/public-figures-test-book.csv  
+**Southeast small-business test CSV:** https://reactivation-desk.vercel.app/southeast-small-business-test-book.csv
 
 ## What it does
 
@@ -33,15 +34,20 @@ Checkout is simulated in-browser for the assignment demo.
 
 Rules own safety · AI cites the file · tags stay under advisor control · notes compound over time · no CRM hostage · no auto-send
 
-## Public-figures test book
+## Test books
 
-`public/public-figures-test-book.csv` (~500 rows) uses **real, publicly known** executives at real companies for testing AI person/company verification. Phones and emails are synthetic. Regenerated with:
+`public/public-figures-test-book.csv` (~500 rows) — real public-company executives for AI verify testing.
+
+`public/southeast-small-business-test-book.csv` (~520 rows) — real publicly reported owners/leaders at small and mid-market companies across NC, SC, GA, FL, TN, AL, VA for local/sector brief testing.
+
+Phones and emails are synthetic. Regenerate with:
 
 ```bash
 npm run generate:public-figures-csv
+npm run generate:southeast-csv
 ```
 
-Do not contact anyone in that file.
+Do not contact anyone in these files.
 
 ## Develop
 
