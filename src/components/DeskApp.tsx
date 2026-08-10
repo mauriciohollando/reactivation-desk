@@ -135,9 +135,17 @@ export function DeskApp() {
     return rows;
   }, [campaign, rankedLive]);
 
-  const contacted = campaignRows.filter(
-    (p) => (outcomes[p.id] ?? p.outcome) !== "queued",
-  ).length;
+  const stillToCall = useMemo(
+    () =>
+      campaignRows.filter((p) => (outcomes[p.id] ?? p.outcome) === "queued"),
+    [campaignRows, outcomes],
+  );
+  const alreadyLogged = useMemo(
+    () =>
+      campaignRows.filter((p) => (outcomes[p.id] ?? p.outcome) !== "queued"),
+    [campaignRows, outcomes],
+  );
+  const contacted = alreadyLogged.length;
   const blockCalling =
     !!importSummary &&
     importSummary.callableThisWeek === 0 &&
@@ -562,11 +570,14 @@ export function DeskApp() {
         <section className="funnel-card plan-card">
           <div className="plan-header">
             <div>
-              <h2>{campaignRows.length} people this week</h2>
+              <h2>
+                {stillToCall.length} still to call
+                {contacted > 0 ? ` · ${contacted} logged` : ""}
+              </h2>
               <p className="muted">
                 {aiAnalyzedCount
-                  ? `AI wrote call reasons · ${contacted} logged · call anyone in any order`
-                  : `${contacted} logged · call anyone in any order`}
+                  ? `AI wrote call reasons · ${campaignRows.length} in this week · call anyone in any order`
+                  : `${campaignRows.length} in this week · call anyone in any order`}
               </p>
             </div>
             {contacted >= campaignRows.length && campaignRows.length > 0 && (
@@ -586,49 +597,40 @@ export function DeskApp() {
             {campaignRows.length === 0 && (
               <p className="muted">No people in this week yet. Go back and rebuild.</p>
             )}
-            {campaignRows.map((p, index) => {
-              const aiReason = Boolean(p.whyCallOverride);
-              const outcome = outcomes[p.id] ?? p.outcome;
-              return (
-              <article key={p.id} className="plan-item">
-                <div className="plan-index">
-                  {index + 1}
-                </div>
-                <div className="plan-body">
-                  <div className="plan-title-row">
-                    <h3>{p.name}</h3>
-                    <span className="silence-pill">{silenceLabel(p.silenceBucket)}</span>
-                    {aiReason && <span className="ai-pill">AI reason</span>}
-                    {outcome !== "queued" && (
-                      <span className="outcome-pill">{OUTCOME_LABELS[outcome]}</span>
-                    )}
-                  </div>
-                  <p className="why-call">
-                    <span className="why-label">Call because</span>
-                    {p.whyCall}
-                  </p>
-                  <InsightTagRow tags={p.tags} />
-                  <p className="meta-line">
-                    {p.company ?? "No company"}
-                    {" · "}
-                    {p.phone ? (
-                      <a href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>{p.phone}</a>
-                    ) : (
-                      "No phone"
-                    )}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={() => openCall(p.id)}
-                >
-                  Call
-                </button>
-              </article>
-              );
-            })}
+            {stillToCall.length > 0 && (
+              <p className="plan-section-label">Still to call</p>
+            )}
+            {stillToCall.map((p, index) => (
+              <PlanPersonCard
+                key={p.id}
+                p={p}
+                index={index + 1}
+                outcome={outcomes[p.id] ?? p.outcome}
+                onCall={() => openCall(p.id)}
+              />
+            ))}
+            {stillToCall.length === 0 && campaignRows.length > 0 && (
+              <p className="muted plan-empty-queue">
+                Everyone in this week is logged. Wrap the week or reopen someone below.
+              </p>
+            )}
           </div>
+
+          {alreadyLogged.length > 0 && (
+            <div className="plan-list plan-list-logged">
+              <p className="plan-section-label">Already called / logged</p>
+              {alreadyLogged.map((p, index) => (
+                <PlanPersonCard
+                  key={p.id}
+                  p={p}
+                  index={index + 1}
+                  outcome={outcomes[p.id] ?? p.outcome}
+                  logged
+                  onCall={() => openCall(p.id)}
+                />
+              ))}
+            </div>
+          )}
 
           <button
             type="button"
@@ -781,6 +783,58 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
   wrong_number: "Wrong number",
   do_not_contact: "Do not contact",
 };
+
+function PlanPersonCard({
+  p,
+  index,
+  outcome,
+  logged = false,
+  onCall,
+}: {
+  p: RankedProspect;
+  index: number;
+  outcome: Outcome;
+  logged?: boolean;
+  onCall: () => void;
+}) {
+  const aiReason = Boolean(p.whyCallOverride);
+  return (
+    <article className={logged ? "plan-item logged" : "plan-item"}>
+      <div className="plan-index">{index}</div>
+      <div className="plan-body">
+        <div className="plan-title-row">
+          <h3>{p.name}</h3>
+          <span className="silence-pill">{silenceLabel(p.silenceBucket)}</span>
+          {aiReason && <span className="ai-pill">AI reason</span>}
+          {outcome !== "queued" && (
+            <span className="outcome-pill">{OUTCOME_LABELS[outcome]}</span>
+          )}
+        </div>
+        <p className="why-call">
+          <span className="why-label">Call because</span>
+          {p.whyCall}
+        </p>
+        <InsightTagRow tags={p.tags} />
+        <p className="meta-line">
+          {p.company ?? "No company"}
+          {" · "}
+          {p.phone ? (
+            <a href={`tel:${p.phone.replace(/[^\d+]/g, "")}`}>{p.phone}</a>
+          ) : (
+            "No phone"
+          )}
+        </p>
+      </div>
+      <button
+        type="button"
+        className={logged ? "btn ghost" : "btn primary"}
+        onClick={onCall}
+      >
+        {logged ? "Open" : "Call"}
+      </button>
+    </article>
+  );
+}
 
 const OUTCOME_CHOICES: { value: Outcome; label: string; hint: string }[] = [
   { value: "meeting", label: "Meeting booked", hint: "They agreed to a next conversation" },
