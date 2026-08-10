@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { getOpenAI } from "@/lib/openai";
+import { AUDIENCE_IDS, OFFER_IDS } from "@/lib/practiceThesis";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -12,26 +13,8 @@ const inputSchema = z.object({
 });
 
 const draftSchema = z.object({
-  audience: z.enum([
-    "business_owners",
-    "hnw_families",
-    "high_income_professionals",
-    "mixed",
-    "other",
-  ]),
-  offers: z
-    .array(
-      z.enum([
-        "life_benefits",
-        "succession_liquidity",
-        "wealth_aum",
-        "insurance_reviews",
-        "general_reactivation",
-        "custom",
-      ]),
-    )
-    .min(1)
-    .max(3),
+  audience: z.enum(AUDIENCE_IDS),
+  offers: z.array(z.enum(OFFER_IDS)).min(1).max(3),
   customOffer: z.string().max(280),
   summary: z.string().max(320),
   rationale: z.string().max(320),

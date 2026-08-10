@@ -42,6 +42,7 @@ import {
 import {
   allowedTagsForThesis,
   applyAnswersToThesis,
+  bookSampleForThesis,
   defaultPracticeThesis,
   inferThesisFromBook,
   mergeUrlDraftIntoThesis,
@@ -121,6 +122,8 @@ type State = {
   unlockWithPromo: (code: string) => { ok: boolean; error?: string };
   /** Prototype helper — wipe paid unlock so the compare page is testable again. */
   clearAccess: () => void;
+  /** AI guess of practice thesis from the imported book (post-import popup). */
+  guessThesisFromBook: () => Promise<boolean>;
   confirmThesisReview: (input: {
     audience: AudienceId;
     offers: OfferId[];
@@ -227,11 +230,8 @@ function applyBook(
       ? { ...current, sprintBooksUsed: current.sprintBooksUsed + 1 }
       : current;
   const importSummary = buildImportSummary(prospects);
-  const { thesis, insights } = inferThesisFromBook(
-    slim,
-    importSummary,
-    normalizeThesis(priorThesis),
-  );
+  // Keep prior thesis until the AI guess returns; popup starts in "reading" state.
+  const prior = normalizeThesis(priorThesis);
   return {
     prospects: slim,
     sourceLabel,
@@ -260,13 +260,21 @@ function applyBook(
     step: "diagnose" as WizardStep,
     callIndex: 0,
     access: nextAccess,
-    practiceThesis: thesis,
-    bookInsights: insights,
+    practiceThesis: {
+      ...prior,
+      reviewedForSourceLabel: null,
+    },
+    bookInsights: [
+      {
+        id: "loading",
+        text: `Reading ${importSummary.total} rows to guess who you sell to and what to reopen…`,
+      },
+    ],
     thesisReviewPending: true,
-    thesisStatus: "idle" as const,
+    thesisStatus: "running" as const,
     thesisError: null as string | null,
-    allowedTags: allowedTagsForThesis(thesis),
-    tagPresetId: tagPresetForThesis(thesis),
+    allowedTags: allowedTagsForThesis(prior),
+    tagPresetId: tagPresetForThesis(prior),
   };
 }
 
@@ -332,6 +340,7 @@ export const useDesk = create<State>()(
           ),
           weekBudget: 10,
         });
+        void get().guessThesisFromBook();
       },
       loadProspects: (prospects, sourceLabel) => {
         const access = normalizeAccess(get().access);
@@ -348,6 +357,7 @@ export const useDesk = create<State>()(
         set({
           ...applyBook(prospects, sourceLabel, access, get().practiceThesis),
         });
+        void get().guessThesisFromBook();
       },
       setTagPreset: (presetId) => {
         const preset = TAG_PRESETS.find((p) => p.id === presetId) ?? defaultPreset;
@@ -428,6 +438,84 @@ export const useDesk = create<State>()(
           thesisStatus: "idle",
           thesisError: null,
         });
+      },
+      guessThesisFromBook: async () => {
+        const prospects = get().prospects;
+        const summary = get().importSummary;
+        if (!prospects.length) {
+          set({ thesisStatus: "idle" });
+          return false;
+        }
+        set({ thesisStatus: "running", thesisError: null });
+        try {
+          const response = await fetch("/api/practice-thesis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sourceLabel: get().sourceLabel,
+              book: bookSampleForThesis(prospects, summary),
+            }),
+          });
+          const body = (await response.json()) as {
+            guess?: {
+              audience: AudienceId;
+              offers: OfferId[];
+              customOffer: string;
+              summary: string;
+              insights: BookInsight[];
+              rationale: string;
+            };
+            error?: string;
+          };
+          if (!response.ok || !body.guess) {
+            throw new Error(body.error ?? `Thesis guess failed (${response.status})`);
+          }
+          const g = body.guess;
+          const next = normalizeThesis({
+            ...get().practiceThesis,
+            audience: g.audience,
+            offers: g.offers,
+            customOffer: g.customOffer,
+            summary: g.summary,
+            confidence: "guessed",
+            sources: [...new Set([...get().practiceThesis.sources, "book" as const])],
+            updatedAt: new Date().toISOString(),
+            reviewedForSourceLabel: null,
+          });
+          if (!g.summary.trim()) next.summary = thesisSummaryLine(next);
+          set({
+            practiceThesis: next,
+            bookInsights: g.insights.length
+              ? g.insights
+              : [{ id: "rationale", text: g.rationale }],
+            allowedTags: allowedTagsForThesis(next),
+            tagPresetId: tagPresetForThesis(next),
+            thesisStatus: "idle",
+            thesisError: null,
+            thesisReviewPending: true,
+          });
+          return true;
+        } catch (error) {
+          // Deterministic fallback if the model is unavailable.
+          const { thesis, insights } = inferThesisFromBook(
+            get().prospects,
+            get().importSummary,
+            get().practiceThesis,
+          );
+          set({
+            practiceThesis: thesis,
+            bookInsights: insights,
+            allowedTags: allowedTagsForThesis(thesis),
+            tagPresetId: tagPresetForThesis(thesis),
+            thesisStatus: "idle",
+            thesisError:
+              error instanceof Error
+                ? `${error.message} Showing a local guess instead — please corroborate.`
+                : "AI guess unavailable. Showing a local guess — please corroborate.",
+            thesisReviewPending: true,
+          });
+          return false;
+        }
       },
       confirmThesisReview: async (input) => {
         const sourceLabel = get().sourceLabel;

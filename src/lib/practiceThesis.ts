@@ -1,9 +1,11 @@
 import type { ImportSummary, Prospect } from "./types";
 import { TAG_PRESETS, type AllowedTag } from "./tagPresets";
 
-/** Who the advisor typically reopens. */
+/** Who they typically reopen. */
 export type AudienceId =
   | "business_owners"
+  | "smb_operators"
+  | "founders"
   | "hnw_families"
   | "high_income_professionals"
   | "mixed"
@@ -11,10 +13,16 @@ export type AudienceId =
 
 /** What conversations they reopen for (curation + tips — not voice). */
 export type OfferId =
+  | "sales_reactivation"
+  | "b2b_services"
+  | "services_consulting"
+  | "saas_software"
+  | "data_analytics"
   | "life_benefits"
   | "succession_liquidity"
   | "wealth_aum"
   | "insurance_reviews"
+  | "group_healthcare"
   | "general_reactivation"
   | "custom";
 
@@ -43,6 +51,8 @@ export type PracticeThesis = {
 };
 
 export const AUDIENCE_OPTIONS: { id: AudienceId; label: string }[] = [
+  { id: "smb_operators", label: "Small-business operators" },
+  { id: "founders", label: "Founders / CEOs" },
   { id: "business_owners", label: "Business owners" },
   { id: "hnw_families", label: "HNW families" },
   { id: "high_income_professionals", label: "High-income professionals" },
@@ -56,6 +66,42 @@ export const OFFER_OPTIONS: {
   hint: string;
   tagPresetId: string;
 }[] = [
+  {
+    id: "sales_reactivation",
+    label: "Sales / reactivation",
+    hint: "Reopen prior prospects in any industry",
+    tagPresetId: "general_reactivation",
+  },
+  {
+    id: "b2b_services",
+    label: "B2B services",
+    hint: "Accounting, marketing, IT, ops services",
+    tagPresetId: "general_reactivation",
+  },
+  {
+    id: "services_consulting",
+    label: "Services / consulting",
+    hint: "Agencies, fractional ops, advisory",
+    tagPresetId: "general_reactivation",
+  },
+  {
+    id: "saas_software",
+    label: "SaaS / software",
+    hint: "Product or tool sellers",
+    tagPresetId: "general_reactivation",
+  },
+  {
+    id: "data_analytics",
+    label: "Data / analytics",
+    hint: "Dashboards, reporting, analysis retainers",
+    tagPresetId: "general_reactivation",
+  },
+  {
+    id: "group_healthcare",
+    label: "Group healthcare",
+    hint: "Employer medical / benefits for companies",
+    tagPresetId: "life_benefits",
+  },
   {
     id: "life_benefits",
     label: "Life & benefits",
@@ -93,6 +139,12 @@ export const OFFER_OPTIONS: {
     tagPresetId: "general_reactivation",
   },
 ];
+
+export const AUDIENCE_IDS = AUDIENCE_OPTIONS.map((o) => o.id) as [
+  AudienceId,
+  ...AudienceId[],
+];
+export const OFFER_IDS = OFFER_OPTIONS.map((o) => o.id) as [OfferId, ...OfferId[]];
 
 /** Advisor A cold start — disclosed default for curation + tips. */
 export function defaultPracticeThesis(): PracticeThesis {
@@ -180,10 +232,37 @@ ${urls ? `${urls}\n` : ""}Prefer people and angles that fit this thesis. Stay gr
 }
 
 export function tagPresetForThesis(thesis: PracticeThesis): string {
-  const primary = thesis.offers[0] ?? "life_benefits";
+  const primary = thesis.offers[0] ?? "general_reactivation";
   return (
-    OFFER_OPTIONS.find((o) => o.id === primary)?.tagPresetId ?? "life_benefits"
+    OFFER_OPTIONS.find((o) => o.id === primary)?.tagPresetId ??
+    "general_reactivation"
   );
+}
+
+/** Compact sample of the book for AI thesis guessing (keeps prompt small). */
+export function bookSampleForThesis(
+  prospects: Prospect[],
+  summary: ImportSummary | null,
+  limit = 28,
+) {
+  const sample = prospects.slice(0, limit).map((p) => ({
+    name: p.name,
+    title: p.title ?? "",
+    company: p.company ?? "",
+    segment: p.segment ?? "",
+    notes: (p.notes ?? "").slice(0, 220),
+    source: p.source ?? "",
+  }));
+  return {
+    total: summary?.total ?? prospects.length,
+    callableThisWeek: summary?.callableThisWeek ?? null,
+    thinFiles: summary?.thinFiles ?? null,
+    topTags: (summary?.tagCensus ?? []).slice(0, 8).map((t) => ({
+      label: t.label,
+      count: t.count,
+    })),
+    sample,
+  };
 }
 
 export function allowedTagsForThesis(thesis: PracticeThesis): AllowedTag[] {
@@ -204,8 +283,24 @@ function countNoteSignals(prospects: Prospect[]): SignalHit[] {
 
   const checks: { id: OfferId | "owner_titles"; re: RegExp }[] = [
     {
+      id: "data_analytics",
+      re: /dashboard|kpi|analytics|looker|metabase|quickbooks|spreadsheet|cohort|reporting|data pack/g,
+    },
+    {
+      id: "group_healthcare",
+      re: /group (medical|health)|open enrollment|stop-?loss|pepm|fully insured|self-?funded|employer.?sponsored health/g,
+    },
+    {
+      id: "saas_software",
+      re: /\bsaas\b|product[- ]led|arr\b|mrr\b|subscription software|seat license/g,
+    },
+    {
+      id: "services_consulting",
+      re: /consulting|fractional|retainer|agency|advisory engagement/g,
+    },
+    {
       id: "life_benefits",
-      re: /buy[\s-]?sell|key[ -]?person|executive benefits|disability|coverage gap|policy/g,
+      re: /buy[\s-]?sell|key[ -]?person|executive benefits|disability|coverage gap/g,
     },
     {
       id: "succession_liquidity",
@@ -283,16 +378,25 @@ export function inferThesisFromBook(
   const succession = byId.succession_liquidity ?? 0;
   const wealth = byId.wealth_aum ?? 0;
   const insurance = byId.insurance_reviews ?? 0;
+  const data = byId.data_analytics ?? 0;
+  const groupHealth = byId.group_healthcare ?? 0;
+  const saas = byId.saas_software ?? 0;
+  const consulting = byId.services_consulting ?? 0;
 
   if (ownerHits >= Math.max(3, Math.floor(n * 0.08))) {
     insights.push({
       id: "owners",
-      text: `Many owner/founder/CEO titles — fits a business-owner reopen book.`,
+      text: `Many owner/founder/CEO titles — fits an operator / founder reopen book.`,
     });
   }
-  if (life + succession + insurance + wealth > 0) {
+  const signalTotal = life + succession + insurance + wealth + data + groupHealth + saas + consulting;
+  if (signalTotal > 0) {
     const parts: string[] = [];
-    if (life) parts.push(`life/benefits language (~${life})`);
+    if (data) parts.push(`analytics/dashboard language (~${data})`);
+    if (groupHealth) parts.push(`group healthcare (~${groupHealth})`);
+    if (saas) parts.push(`SaaS (~${saas})`);
+    if (consulting) parts.push(`consulting/agency (~${consulting})`);
+    if (life) parts.push(`life/benefits (~${life})`);
     if (succession) parts.push(`succession/liquidity (~${succession})`);
     if (insurance) parts.push(`policy/review (~${insurance})`);
     if (wealth) parts.push(`wealth/AUM (~${wealth})`);
@@ -303,13 +407,13 @@ export function inferThesisFromBook(
   } else {
     insights.push({
       id: "sparse",
-      text: "Notes are light on product language — keeping the Advisor A life/benefits default until you sharpen it.",
+      text: "Notes are light on product language — using general reactivation until you sharpen it.",
     });
   }
 
   // If user already confirmed manually and book is sparse, keep their thesis.
   const strongBook =
-    life + succession + wealth + insurance >= 4 || ownerHits >= Math.max(5, n * 0.1);
+    signalTotal >= 4 || ownerHits >= Math.max(5, n * 0.1);
 
   let audience = base.audience;
   let offers = [...base.offers];
@@ -317,7 +421,9 @@ export function inferThesisFromBook(
   const sources = new Set(base.sources);
 
   if (strongBook || base.confidence === "default") {
-    if (ownerHits >= Math.max(3, Math.floor(n * 0.08))) {
+    if (data + saas + consulting > life + succession) {
+      audience = "smb_operators";
+    } else if (ownerHits >= Math.max(3, Math.floor(n * 0.08))) {
       audience = "business_owners";
     } else if (wealth > life + succession) {
       audience = "hnw_families";
@@ -325,6 +431,10 @@ export function inferThesisFromBook(
 
     const rankedOffers = (
       [
+        { id: "data_analytics" as const, score: data },
+        { id: "group_healthcare" as const, score: groupHealth },
+        { id: "saas_software" as const, score: saas },
+        { id: "services_consulting" as const, score: consulting },
         { id: "life_benefits" as const, score: life },
         { id: "succession_liquidity" as const, score: succession },
         { id: "insurance_reviews" as const, score: insurance },
@@ -337,7 +447,7 @@ export function inferThesisFromBook(
     if (rankedOffers.length) {
       offers = rankedOffers.slice(0, 2).map((o) => o.id);
     } else if (base.confidence === "default") {
-      offers = ["life_benefits", "succession_liquidity"];
+      offers = ["general_reactivation", "sales_reactivation"];
     }
 
     confidence = rankedOffers.length || ownerHits >= 3 ? "guessed" : base.confidence;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AUDIENCE_OPTIONS,
   OFFER_OPTIONS,
@@ -14,6 +14,7 @@ type Props = {
   thesis: PracticeThesis;
   insights: BookInsight[];
   sourceLabel: string;
+  /** True while the AI is reading the book (or URL enrich). */
   busy?: boolean;
   error?: string | null;
   onConfirm: (next: {
@@ -41,7 +42,27 @@ export function ThesisReviewModal({
   const [customOffer, setCustomOffer] = useState(thesis.customOffer);
   const [companyUrl, setCompanyUrl] = useState(thesis.companyUrl);
   const [linkedinUrl, setLinkedinUrl] = useState(thesis.linkedinUrl);
-  const [mode, setMode] = useState<"reflect" | "questions" | "urls">("reflect");
+  const [mode, setMode] = useState<"reflect" | "urls">("reflect");
+
+  // When AI guess lands, refresh local chips from the new thesis.
+  useEffect(() => {
+    setAudience(thesis.audience);
+    setOffers(thesis.offers);
+    setCustomOffer(thesis.customOffer);
+    setCompanyUrl(thesis.companyUrl);
+    setLinkedinUrl(thesis.linkedinUrl);
+  }, [
+    thesis.audience,
+    thesis.offers,
+    thesis.customOffer,
+    thesis.companyUrl,
+    thesis.linkedinUrl,
+    thesis.updatedAt,
+    thesis.summary,
+  ]);
+
+  const guessing = Boolean(busy && thesis.confidence !== "guessed" && !error);
+  const awaitingCorroboration = !guessing;
 
   const toggleOffer = (id: OfferId) => {
     setOffers((cur) => {
@@ -54,7 +75,7 @@ export function ThesisReviewModal({
   const submit = (enrichFromUrls: boolean) => {
     onConfirm({
       audience,
-      offers: offers.length ? offers : ["life_benefits"],
+      offers: offers.length ? offers : ["general_reactivation"],
       customOffer,
       companyUrl: companyUrl.trim(),
       linkedinUrl: linkedinUrl.trim(),
@@ -71,63 +92,47 @@ export function ThesisReviewModal({
         aria-labelledby="thesis-modal-title"
       >
         <p className="thesis-modal-kicker">From your book</p>
-        <h2 id="thesis-modal-title">We can already see how to curate this list</h2>
+        <h2 id="thesis-modal-title">
+          {guessing ? "Reading your book…" : "Does this match what you sell?"}
+        </h2>
         <p className="muted thesis-modal-lead">
-          Based on <strong>{sourceLabel}</strong>. This shapes who rises and what tips we
-          give — not a copy of your voice.
+          Based on <strong>{sourceLabel}</strong>. AI proposes how we should curate and
+          tip — you corroborate. Not a copy of your voice.
         </p>
 
-        <ul className="thesis-insight-list">
-          {insights.map((ins) => (
-            <li key={ins.id}>{ins.text}</li>
-          ))}
-        </ul>
-
-        <div className="thesis-guess">
-          <span className="block-label">Proposed curation</span>
-          <p>{thesis.summary}</p>
-          <span className={`thesis-confidence ${thesis.confidence}`}>
-            {thesis.confidence === "default"
-              ? "Advisor A default"
-              : thesis.confidence === "guessed"
-                ? "Guessed from this book"
-                : "Confirmed"}
-          </span>
-        </div>
-
-        {mode === "reflect" && (
-          <div className="thesis-modal-actions">
-            <button
-              type="button"
-              className="btn primary lg"
-              disabled={busy}
-              onClick={() => submit(false)}
-            >
-              Looks right — continue
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() => setMode("questions")}
-            >
-              Answer 2 questions
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() => setMode("urls")}
-            >
-              Add company / LinkedIn
-            </button>
-            <button type="button" className="btn ghost" disabled={busy} onClick={onSkip}>
-              Skip for now
-            </button>
+        {guessing ? (
+          <div className="thesis-ai-loading" role="status" aria-live="polite">
+            <div className="ai-building-pulse" aria-hidden />
+            <div>
+              <strong>Guessing audience and offer conversations…</strong>
+              <p className="muted tiny">
+                Sampling titles, companies, and notes — this usually takes a few seconds.
+              </p>
+            </div>
           </div>
+        ) : (
+          <>
+            <ul className="thesis-insight-list">
+              {insights.map((ins) => (
+                <li key={ins.id}>{ins.text}</li>
+              ))}
+            </ul>
+
+            <div className="thesis-guess">
+              <span className="block-label">Proposed curation</span>
+              <p>{thesis.summary}</p>
+              <span className={`thesis-confidence ${thesis.confidence}`}>
+                {thesis.confidence === "default"
+                  ? "Default"
+                  : thesis.confidence === "guessed"
+                    ? "AI guess from this book"
+                    : "Confirmed"}
+              </span>
+            </div>
+          </>
         )}
 
-        {mode === "questions" && (
+        {awaitingCorroboration && mode === "reflect" && (
           <div className="thesis-form">
             <fieldset>
               <legend>Who are these people, mostly?</legend>
@@ -138,6 +143,7 @@ export function ThesisReviewModal({
                     type="button"
                     className={audience === opt.id ? "chip on" : "chip"}
                     onClick={() => setAudience(opt.id)}
+                    disabled={busy}
                   >
                     {opt.label}
                   </button>
@@ -154,6 +160,7 @@ export function ThesisReviewModal({
                     className={offers.includes(opt.id) ? "chip on" : "chip"}
                     title={opt.hint}
                     onClick={() => toggleOffer(opt.id)}
+                    disabled={busy}
                   >
                     {opt.label}
                   </button>
@@ -163,8 +170,9 @@ export function ThesisReviewModal({
                 <input
                   value={customOffer}
                   onChange={(e) => setCustomOffer(e.target.value)}
-                  placeholder="Describe what you reopen for"
+                  placeholder="e.g. Data analysis and dashboards for small companies"
                   aria-label="Custom offer"
+                  disabled={busy}
                 />
               )}
             </fieldset>
@@ -175,15 +183,18 @@ export function ThesisReviewModal({
                 disabled={busy || !offers.length}
                 onClick={() => submit(false)}
               >
-                Save & continue
+                Looks right — continue
               </button>
               <button
                 type="button"
-                className="btn ghost"
+                className="btn"
                 disabled={busy}
-                onClick={() => setMode("reflect")}
+                onClick={() => setMode("urls")}
               >
-                Back
+                Add company / LinkedIn
+              </button>
+              <button type="button" className="btn ghost" disabled={busy} onClick={onSkip}>
+                Skip for now
               </button>
             </div>
           </div>
@@ -192,8 +203,7 @@ export function ThesisReviewModal({
         {mode === "urls" && (
           <div className="thesis-form">
             <p className="muted tiny">
-              Optional. We’ll infer audience and offer conversations from public pages —
-              you can edit anytime.
+              Optional. We’ll sharpen the guess from public pages — you can edit anytime.
             </p>
             <label>
               Company URL
