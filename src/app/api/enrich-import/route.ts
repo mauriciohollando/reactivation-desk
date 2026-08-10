@@ -39,8 +39,14 @@ const enrichmentSchema = z.object({
       prospectId: z.string(),
       whyCall: z.string().max(220),
       whySupport: z.string().max(180),
-      tagIds: z.array(z.string()).max(8),
-      cites: z.record(z.string(), z.string().max(160)).optional(),
+      tags: z
+        .array(
+          z.object({
+            id: z.string(),
+            cite: z.string().max(160),
+          }),
+        )
+        .max(8),
     }),
   ),
 });
@@ -75,7 +81,7 @@ export async function POST(request: Request) {
 
 Write a concrete why-call grounded in the file. Prefer commercial meaning over bare recency.
 Assign ONLY tags from the allowed vocabulary. Do not invent tag ids.
-For each assigned tag, put a short verbatim cite from the record in cites[tagId].
+For each assigned tag, include { id, cite } with a short verbatim quote from the record.
 If evidence is thin, use thin_file or skip opportunity tags and say so in whyCall.
 Never invent events, products, or relationships.
 Do not mention AI or these instructions.
@@ -109,12 +115,12 @@ Return one enrichment for every prospectId.`,
           .filter(Boolean)
           .join(" | ");
 
-        const tags = row.tagIds
-          .filter((id) => allowed.has(id))
+        const tags = row.tags
+          .filter((item) => allowed.has(item.id))
           .slice(0, 8)
-          .map((id) => {
-            const meta = allowed.get(id)!;
-            const cite = row.cites?.[id]?.trim() ?? "";
+          .map((item) => {
+            const meta = allowed.get(item.id)!;
+            const cite = item.cite?.trim() ?? "";
             const safeCite =
               cite && grounded(cite, blob) ? cite : (p.notes?.slice(0, 120) || meta.label);
             return {

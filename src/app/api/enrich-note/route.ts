@@ -33,18 +33,22 @@ const noteSchema = z.object({
   appendedNote: z.string().max(2000),
   whyCall: z.string().max(220),
   whySupport: z.string().max(180),
-  tagIds: z.array(z.string()).max(8),
-  cites: z.record(z.string(), z.string().max(160)).optional(),
-  fieldUpdates: z
-    .object({
-      company: z.string().max(120).optional(),
-      title: z.string().max(120).optional(),
-      estimatedValue: z.string().max(80).optional(),
-      lastTouch: z.string().max(40).optional(),
-      phone: z.string().max(40).optional(),
-      email: z.string().max(120).optional(),
-    })
-    .optional(),
+  tags: z
+    .array(
+      z.object({
+        id: z.string(),
+        cite: z.string().max(160),
+      }),
+    )
+    .max(8),
+  fieldUpdates: z.object({
+    company: z.string().max(120).nullable(),
+    title: z.string().max(120).nullable(),
+    estimatedValue: z.string().max(80).nullable(),
+    lastTouch: z.string().max(40).nullable(),
+    phone: z.string().max(40).nullable(),
+    email: z.string().max(120).nullable(),
+  }),
   doNotContact: z.boolean(),
 });
 
@@ -78,11 +82,11 @@ export async function POST(request: Request) {
 Tasks:
 1) Compress the new note into a short durable appendedNote (facts only, no fluff).
 2) Rewrite whyCall / whySupport from the full file + new note.
-3) Assign ONLY tags from the allowed vocabulary.
-4) Suggest fieldUpdates only when the new note clearly states a better company, title, value, phone, email, or last touch date (ISO if possible).
+3) Assign ONLY tags from the allowed vocabulary as { id, cite }.
+4) Suggest fieldUpdates only when the new note clearly states a better company, title, value, phone, email, or last touch date (ISO if possible). Use null when unchanged.
 5) Set doNotContact true only for explicit opt-out / do-not-call language.
 
-Never invent facts. Prefer verbatim cites in cites[tagId] from the new note or existing notes.
+Never invent facts. Prefer verbatim cites from the new note or existing notes.
 Do not create task lists. Do not mention AI.`,
         },
         {
@@ -96,12 +100,12 @@ Do not create task lists. Do not mention AI.`,
     if (!output) throw new Error("OpenAI returned no note enrichment");
 
     const blob = `${prospect.notes ?? ""}\n${noteText}\n${output.appendedNote}`;
-    const tags = output.tagIds
-      .filter((id) => allowed.has(id))
+    const tags = output.tags
+      .filter((item) => allowed.has(item.id))
       .slice(0, 8)
-      .map((id) => {
-        const meta = allowed.get(id)!;
-        const cite = output.cites?.[id]?.trim() ?? "";
+      .map((item) => {
+        const meta = allowed.get(item.id)!;
+        const cite = item.cite?.trim() ?? "";
         const safeCite = cite && grounded(cite, blob) ? cite : output.appendedNote.slice(0, 120);
         return {
           id: meta.id,
@@ -127,7 +131,11 @@ Do not create task lists. Do not mention AI.`,
       whyCall: output.whyCall.trim(),
       whySupport: output.whySupport.trim(),
       tags,
-      fieldUpdates: output.fieldUpdates ?? {},
+      fieldUpdates: Object.fromEntries(
+        Object.entries(output.fieldUpdates ?? {}).filter(
+          ([, value]) => typeof value === "string" && value.trim(),
+        ),
+      ),
       doNotContact: output.doNotContact,
       model: process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1-mini",
     });
