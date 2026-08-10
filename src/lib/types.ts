@@ -83,6 +83,7 @@ export type ImportSummary = {
 
 export type WizardStep =
   | "import"
+  | "plans"
   | "diagnose"
   | "plan"
   | "call"

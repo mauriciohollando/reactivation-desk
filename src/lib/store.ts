@@ -3,8 +3,11 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
+  canBuildWeek,
+  canImportBook,
   canUseDesk,
   emptyAccess,
+  maxWeekSizeForPlan,
   resolvePromo,
   type AccessPlan,
   type AccessState,
@@ -150,14 +153,38 @@ function viewingCall(get: () => State, id: string) {
   return state.campaign?.prospectIds[state.callIndex] === id;
 }
 
+function normalizeAccess(access: AccessState): AccessState {
+  return {
+    ...emptyAccess(),
+    ...access,
+    sprintBooksUsed: access.sprintBooksUsed ?? 0,
+    sprintWeeksUsed: access.sprintWeeksUsed ?? 0,
+  };
+}
+
+function planClampBudget(n: number | undefined, access: AccessState) {
+  const current = normalizeAccess(access);
+  return clampWeekBudget(n ?? 10, maxWeekSizeForPlan(current));
+}
+
+function consumeSprintWeek(access: AccessState): AccessState {
+  const current = normalizeAccess(access);
+  if (current.plan !== "sprint") return current;
+  return { ...current, sprintWeeksUsed: current.sprintWeeksUsed + 1 };
+}
+
+const SPRINT_WEEK_EXHAUSTED =
+  "Sprint includes 3 polished weeks. Unlock Unlimited to keep building weeks, or enter promo UNLIMITED.";
+
 function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessState) {
   // Drop per-row CSV raw maps — they duplicate every field and blow storage/memory.
   const slim = prospects.map((p) => ({ ...p, raw: {} as Record<string, string> }));
   const ranked = rankProspects(slim, {});
+  const current = normalizeAccess(access);
   const nextAccess =
-    access.plan === "sprint" && canUseDesk(access)
-      ? { ...access, sprintBooksUsed: access.sprintBooksUsed + 1 }
-      : access;
+    current.plan === "sprint" && canImportBook(current)
+      ? { ...current, sprintBooksUsed: current.sprintBooksUsed + 1 }
+      : current;
   return {
     prospects: slim,
     sourceLabel,
@@ -225,15 +252,15 @@ export const useDesk = create<State>()(
       preparingIds: [],
       weekPrep: { status: "idle", done: 0, total: 0 },
       loadDemoBook: () => {
-        const access = get().access;
-        if (!canUseDesk(access) && access.plan !== "none") {
+        const access = normalizeAccess(get().access);
+        if (!canImportBook(access) && access.plan !== "none") {
           set({
             analysisError:
-              "Sprint already used. Unlock subscription for another book, or enter a promo code.",
+              "Sprint book already used. Unlock Unlimited for another book, or enter promo UNLIMITED.",
           });
           return;
         }
-        if (!canUseDesk(access) && access.plan === "none") {
+        if (!canImportBook(access) && access.plan === "none") {
           set({ step: "import" });
           return;
         }
@@ -247,13 +274,13 @@ export const useDesk = create<State>()(
         });
       },
       loadProspects: (prospects, sourceLabel) => {
-        const access = get().access;
-        if (!canUseDesk(access)) {
+        const access = normalizeAccess(get().access);
+        if (!canImportBook(access)) {
           set({
             analysisError:
               access.plan === "sprint"
-                ? "Sprint already used. Switch to subscription or enter a promo code."
-                : "Unlock a sprint or subscription before importing.",
+                ? "Sprint includes one book import. Unlock Unlimited for another book, or enter promo UNLIMITED."
+                : "Unlock Sprint or Unlimited before importing.",
             step: "import",
           });
           return;
@@ -293,6 +320,7 @@ export const useDesk = create<State>()(
             unlockedAt: new Date().toISOString(),
             promoUsed,
             sprintBooksUsed: 0,
+            sprintWeeksUsed: 0,
           },
           analysisError: null,
         });
@@ -415,7 +443,18 @@ export const useDesk = create<State>()(
       deepenTopProspects: async (count = 25) => get().enrichImportedBook(count),
       setCampaignBrief: (brief) => set({ campaignBrief: brief }),
       buildWeekWithAi: async (n, opts) => {
-        const budget = clampWeekBudget(n ?? get().weekBudget);
+        const access = normalizeAccess(get().access);
+        if (!canBuildWeek(access)) {
+          set({
+            enrichStatus: "error",
+            enrichError:
+              access.plan === "none"
+                ? "Unlock Sprint or Unlimited before building a week."
+                : SPRINT_WEEK_EXHAUSTED,
+          });
+          return;
+        }
+        const budget = planClampBudget(n ?? get().weekBudget, access);
         const nextWeek = Boolean(opts?.nextWeek);
         const preferLeftovers = Boolean(opts?.preferLeftovers) || nextWeek;
         const brief =
@@ -423,7 +462,10 @@ export const useDesk = create<State>()(
             ? opts.forceBrief.trim()
             : get().campaignBrief.trim();
         if (!brief) {
-          const enrichCount = Math.min(40, Math.max(budget * 3, 20));
+          const enrichCount = Math.min(
+            maxWeekSizeForPlan(access),
+            Math.max(budget * 3, 20),
+          );
           await get().enrichImportedBook(enrichCount);
           get().buildWeekPlan(budget, { nextWeek, preferLeftovers });
           return;
@@ -576,6 +618,9 @@ export const useDesk = create<State>()(
             aiAnalyzedCount: uniquePicks.length,
             step: pickIds.length ? "plan" : "diagnose",
             callIndex: 0,
+            access: pickIds.length
+              ? consumeSprintWeek(get().access)
+              : normalizeAccess(get().access),
           });
           if (pickIds.length) void get().prefetchCampaignPreps();
         } catch (error) {
@@ -589,7 +634,7 @@ export const useDesk = create<State>()(
         }
       },
       buildNextWeek: async (mode) => {
-        const budget = clampWeekBudget(get().weekBudget);
+        const budget = planClampBudget(get().weekBudget, get().access);
         if (mode === "fresh") {
           await get().buildWeekWithAi(budget, {
             nextWeek: true,
@@ -1042,7 +1087,18 @@ export const useDesk = create<State>()(
         }
       },
       buildWeekPlan: (n, opts) => {
-        const budget = clampWeekBudget(n ?? get().weekBudget);
+        const access = normalizeAccess(get().access);
+        if (!canBuildWeek(access)) {
+          set({
+            enrichStatus: "error",
+            enrichError:
+              access.plan === "none"
+                ? "Unlock Sprint or Unlimited before building a week."
+                : SPRINT_WEEK_EXHAUSTED,
+          });
+          return;
+        }
+        const budget = planClampBudget(n ?? get().weekBudget, access);
         const nextWeek = Boolean(opts?.nextWeek);
         const preferLeftovers = Boolean(opts?.preferLeftovers) || nextWeek;
         const previousWeekIds = get().campaign?.prospectIds ?? [];
@@ -1106,6 +1162,7 @@ export const useDesk = create<State>()(
             : get().campaignInterpretedAs,
           step: "plan",
           callIndex: 0,
+          access: top.length ? consumeSprintWeek(access) : access,
         });
         if (top.length) void get().prefetchCampaignPreps();
       },
@@ -1119,7 +1176,9 @@ export const useDesk = create<State>()(
       setStep: (step) => set({ step }),
       setCallIndex: (callIndex) => set({ callIndex }),
       setWeekBudget: (weekBudget) =>
-        set({ weekBudget: clampWeekBudget(weekBudget) }),
+        set({
+          weekBudget: planClampBudget(weekBudget, get().access),
+        }),
       setPreferWarm: (preferWarm) => set({ preferWarm }),
       mergeDuplicatePair: (keepId, dropId) => {
         const list = get().prospects;
@@ -1254,9 +1313,12 @@ export const useDesk = create<State>()(
         };
         return safe;
       }),
-      merge: (persistedState, currentState) => ({
+      merge: (persistedState, currentState) => {
+        const partial = persistedState as Partial<State>;
+        return {
         ...currentState,
-        ...(persistedState as Partial<State>),
+        ...partial,
+        access: normalizeAccess(partial.access ?? currentState.access),
         // Never hydrate a persisted book — those keys are intentionally omitted.
         prospects: currentState.prospects,
         outcomes: currentState.outcomes,
@@ -1283,7 +1345,8 @@ export const useDesk = create<State>()(
         preparingIds: [],
         weekPrep: { status: "idle", done: 0, total: 0 },
         aiAnalyzedCount: 0,
-      }),
+      };
+      },
       onRehydrateStorage: () => {
         // Drop legacy full-book caches that may already be filling the quota.
         for (const key of [

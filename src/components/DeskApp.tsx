@@ -3,10 +3,16 @@
 import { useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
 import {
+  SPRINT_MAX_WEEK_SIZE,
   SPRINT_PRICE,
   SUBSCRIPTION_PRICE,
   accessLabel,
+  canBuildWeek,
+  canImportBook,
   canUseDesk,
+  maxWeekSizeForPlan,
+  sprintWeeksRemaining,
+  type AccessPlan,
 } from "@/lib/access";
 import type { CallBriefSection, CallPrepPacket, SaleHighlight } from "@/lib/callPrepTypes";
 import { normalizeCallPrepPacket } from "@/lib/callPrepTypes";
@@ -28,7 +34,6 @@ import type {
 } from "@/lib/types";
 import {
   WEEK_BUDGET_CHIPS,
-  WEEK_BUDGET_MAX,
   WEEK_BUDGET_MIN,
   clampWeekBudget,
   countOutcomes,
@@ -37,6 +42,7 @@ import {
   rankedExportRows,
   weekExportRows,
 } from "@/lib/weekFlow";
+import { PlanCompare } from "./PlanCompare";
 
 function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   if (!rows.length) return;
@@ -135,12 +141,16 @@ export function DeskApp() {
   const [customTag, setCustomTag] = useState("");
   const [promo, setPromo] = useState("");
   const [promoError, setPromoError] = useState<string | null>(null);
+  const [planFocus, setPlanFocus] = useState<"sprint" | "subscription">("sprint");
   const [showExcluded, setShowExcluded] = useState(false);
   const [customBudget, setCustomBudget] = useState("");
   const [nextWeekBusy, setNextWeekBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const canImport = canUseDesk(access);
+  const canImport = canImportBook(access);
+  const weekMax = maxWeekSizeForPlan(access);
+  const weeksLeft = sprintWeeksRemaining(access);
+  const weekChips = WEEK_BUDGET_CHIPS.filter((n) => n <= weekMax);
   const rankedLive = useMemo(
     () => rankedFn(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,7 +195,7 @@ export function DeskApp() {
     importSummary.callableThisWeek === 0 &&
     importSummary.total > 0;
   const callCard = campaignRows[callIndex] ?? null;
-  const budgetIsCustom = !WEEK_BUDGET_CHIPS.includes(
+  const budgetIsCustom = !weekChips.includes(
     weekBudget as (typeof WEEK_BUDGET_CHIPS)[number],
   );
 
@@ -307,7 +317,7 @@ export function DeskApp() {
         </div>
       </header>
 
-      {prospects.length > 0 && (
+      {prospects.length > 0 && step !== "plans" && (
         <nav className="steps" aria-label="Workflow">
           {STEPS.map((s) => (
             <button
@@ -322,6 +332,17 @@ export function DeskApp() {
         </nav>
       )}
 
+      {step === "plans" && (
+        <PlanCompare
+          focus={planFocus}
+          onBack={() => setStep("import")}
+          onPurchase={(plan: AccessPlan) => {
+            unlockAccess(plan);
+            setStep("import");
+          }}
+        />
+      )}
+
       {/* IMPORT */}
       {step === "import" && prospects.length === 0 && (
         <section className="hero-empty simple-import">
@@ -332,25 +353,55 @@ export function DeskApp() {
           </p>
 
           <div className="unlock-panel">
-            <h3>Start</h3>
-            <div className="pricing-grid">
-              <button
-                type="button"
-                className={access.plan === "sprint" ? "price-card on" : "price-card"}
-                onClick={() => unlockAccess("sprint")}
-              >
-                <strong>Sprint · ${SPRINT_PRICE}</strong>
-                <span>One book. One focused reactivation week.</span>
-              </button>
-              <button
-                type="button"
-                className={access.plan === "subscription" ? "price-card on" : "price-card"}
-                onClick={() => unlockAccess("subscription")}
-              >
-                <strong>Unlimited · ${SUBSCRIPTION_PRICE}/mo</strong>
-                <span>Import as often as you want. Keep notes growing.</span>
-              </button>
-            </div>
+            <h3>{canUseDesk(access) ? "Your plan" : "Start"}</h3>
+            {canUseDesk(access) ? (
+              <div className="plan-unlocked-note">
+                <p className="muted">
+                  {access.plan === "subscription"
+                    ? "Unlimited is unlocked — import as often as you want."
+                    : `Sprint unlocked · ${weeksLeft} polished week${weeksLeft === 1 ? "" : "s"} left · up to ${SPRINT_MAX_WEEK_SIZE} people/week.`}
+                </p>
+                {access.plan === "sprint" && (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => {
+                      setPlanFocus("subscription");
+                      setStep("plans");
+                    }}
+                  >
+                    Compare Unlimited
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="pricing-grid">
+                <button
+                  type="button"
+                  className="price-card"
+                  onClick={() => {
+                    setPlanFocus("sprint");
+                    setStep("plans");
+                  }}
+                >
+                  <strong>Sprint · ${SPRINT_PRICE}</strong>
+                  <span>
+                    1 book · 3 polished weeks · up to {SPRINT_MAX_WEEK_SIZE} people each week.
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="price-card"
+                  onClick={() => {
+                    setPlanFocus("subscription");
+                    setStep("plans");
+                  }}
+                >
+                  <strong>Unlimited · ${SUBSCRIPTION_PRICE}/mo</strong>
+                  <span>Unlimited imports, weeks, and polish.</span>
+                </button>
+              </div>
+            )}
             <div className="promo-row">
               <input
                 value={promo}
@@ -364,15 +415,18 @@ export function DeskApp() {
                 onClick={() => {
                   const result = unlockWithPromo(promo);
                   setPromoError(result.ok ? null : result.error ?? "Invalid code");
+                  if (result.ok) setPromo("");
                 }}
               >
                 Apply
               </button>
             </div>
             {promoError && <p className="error">{promoError}</p>}
-            <p className="muted tiny">
-              Prototype checkout — choosing a plan unlocks the desk. Codes: DEMO, ROWAN, UNLIMITED.
-            </p>
+            {!canUseDesk(access) && (
+              <p className="muted tiny">
+                Compare plans above, or unlock here with DEMO, ROWAN, or UNLIMITED.
+              </p>
+            )}
           </div>
 
           <div className="tag-setup">
@@ -440,9 +494,9 @@ export function DeskApp() {
               Upload CSV
             </button>
           </div>
-          {!canImport && access.plan !== "none" && (
+          {!canImport && access.plan === "sprint" && (
             <p className="error">
-              Sprint already used. Choose Unlimited above, or apply promo UNLIMITED.
+              Sprint includes one book import. Compare Unlimited above, or apply promo UNLIMITED.
             </p>
           )}
           {(csvError || analysisError) && (
@@ -531,7 +585,7 @@ export function DeskApp() {
           <div className="budget-row">
             <span className="block-label">Calls this week</span>
             <div className="filters">
-              {WEEK_BUDGET_CHIPS.map((n) => (
+              {weekChips.map((n) => (
                 <button
                   key={n}
                   type="button"
@@ -550,7 +604,7 @@ export function DeskApp() {
                 <input
                   type="number"
                   min={WEEK_BUDGET_MIN}
-                  max={WEEK_BUDGET_MAX}
+                  max={weekMax}
                   placeholder="12"
                   value={budgetIsCustom ? String(weekBudget) : customBudget}
                   disabled={enrichStatus === "running"}
@@ -559,14 +613,18 @@ export function DeskApp() {
                     setCustomBudget(raw);
                     const n = Number(raw);
                     if (Number.isFinite(n) && n >= WEEK_BUDGET_MIN) {
-                      setWeekBudget(clampWeekBudget(n));
+                      setWeekBudget(clampWeekBudget(n, weekMax));
                     }
                   }}
                 />
               </label>
             </div>
             <p className="muted tiny budget-hint">
-              Most advisors finish 8–12. Cap is {WEEK_BUDGET_MAX} so the week stays finishable.
+              Most advisors finish 8–12. Cap is {weekMax}
+              {access.plan === "sprint"
+                ? ` on Sprint · ${weeksLeft} week${weeksLeft === 1 ? "" : "s"} left`
+                : " so the week stays finishable"}
+              .
             </p>
             <label className="check-inline">
               <input
@@ -624,7 +682,9 @@ export function DeskApp() {
               <button
                 type="button"
                 className="btn primary lg"
-                disabled={blockCalling || !allowedTags.length}
+                disabled={
+                  blockCalling || !allowedTags.length || !canBuildWeek(access)
+                }
                 onClick={() => void buildWeekWithAi(weekBudget)}
               >
                 {campaignBrief.trim()
@@ -643,6 +703,11 @@ export function DeskApp() {
                 Hard stops stay rule-based. AI only uses your file and allowed tags. Ranked CSV is
                 the full callable queue in order — not only this week.
               </p>
+              {access.plan === "sprint" && !canBuildWeek(access) && (
+                <p className="error">
+                  Sprint’s 3 polished weeks are used. Unlock Unlimited or apply promo UNLIMITED.
+                </p>
+              )}
             </div>
           )}
           {(enrichError || analysisError) && (
@@ -886,7 +951,11 @@ export function DeskApp() {
               <button
                 type="button"
                 className="btn primary lg"
-                disabled={nextWeekBusy || enrichStatus === "running"}
+                disabled={
+                  nextWeekBusy ||
+                  enrichStatus === "running" ||
+                  !canBuildWeek(access)
+                }
                 onClick={() => void startNextWeek("leftovers")}
               >
                 {nextWeekBusy ? "Building…" : "Work the leftovers"}
@@ -894,7 +963,11 @@ export function DeskApp() {
               <button
                 type="button"
                 className="btn"
-                disabled={nextWeekBusy || enrichStatus === "running"}
+                disabled={
+                  nextWeekBusy ||
+                  enrichStatus === "running" ||
+                  !canBuildWeek(access)
+                }
                 onClick={() => void startNextWeek("same_theme")}
               >
                 Same theme
@@ -902,7 +975,11 @@ export function DeskApp() {
               <button
                 type="button"
                 className="btn"
-                disabled={nextWeekBusy || enrichStatus === "running"}
+                disabled={
+                  nextWeekBusy ||
+                  enrichStatus === "running" ||
+                  !canBuildWeek(access)
+                }
                 onClick={() => void startNextWeek("fresh")}
               >
                 Fresh ranking
@@ -937,8 +1014,9 @@ export function DeskApp() {
           </div>
           {access.plan === "sprint" && (
             <p className="muted tiny">
-              Sprint is one book — you can keep running weeks on it. Unlock unlimited ($
-              {SUBSCRIPTION_PRICE}/mo) for the next book, or use promo UNLIMITED.
+              {weeksLeft > 0
+                ? `Sprint · ${weeksLeft} polished week${weeksLeft === 1 ? "" : "s"} left (up to ${SPRINT_MAX_WEEK_SIZE}/week). Unlock Unlimited ($${SUBSCRIPTION_PRICE}/mo) for more books and weeks, or use promo UNLIMITED.`
+                : `Sprint weeks used. Unlock Unlimited ($${SUBSCRIPTION_PRICE}/mo) or apply promo UNLIMITED to keep building.`}
             </p>
           )}
         </section>

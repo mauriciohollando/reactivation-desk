@@ -4,11 +4,12 @@ export type NextWeekMode = "leftovers" | "same_theme" | "fresh";
 
 export const WEEK_BUDGET_MIN = 1;
 export const WEEK_BUDGET_MAX = 40;
-export const WEEK_BUDGET_CHIPS = [5, 10, 15, 20] as const;
+export const WEEK_BUDGET_CHIPS = [5, 10, 15, 20, 25] as const;
 
-export function clampWeekBudget(n: number): number {
+export function clampWeekBudget(n: number, max = WEEK_BUDGET_MAX): number {
   if (!Number.isFinite(n)) return 10;
-  return Math.max(WEEK_BUDGET_MIN, Math.min(WEEK_BUDGET_MAX, Math.round(n)));
+  const ceiling = Math.max(WEEK_BUDGET_MIN, Math.min(WEEK_BUDGET_MAX, max));
+  return Math.max(WEEK_BUDGET_MIN, Math.min(ceiling, Math.round(n)));
 }
 
 /** Done for reactivation purposes — leave out of next week. */
