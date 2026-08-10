@@ -1,0 +1,89 @@
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #1a1f24;
+  max-width: 100%;
+}
+
+h1 {
+  font-size: 18pt;
+  margin: 0 0 4pt;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: 12pt;
+  margin: 16pt 0 6pt;
+  padding-top: 8pt;
+  border-top: 1px solid #d5dbe3;
+  color: #0f1720;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 10.5pt;
+  margin: 11pt 0 4pt;
+  color: #243041;
+  page-break-after: avoid;
+}
+
+p,
+li {
+  margin: 0 0 6pt;
+}
+
+ul,
+ol {
+  margin: 0 0 8pt;
+  padding-left: 1.15em;
+}
+
+li {
+  margin-bottom: 4pt;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid #d5dbe3;
+  margin: 14pt 0;
+}
+
+blockquote {
+  background: #f3f6f9;
+  border-left: 3px solid #3d6f99;
+  padding: 8pt 10pt;
+  margin: 8pt 0 10pt;
+}
+
+blockquote p {
+  margin: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6pt 0 10pt;
+  font-size: 9.5pt;
+}
+
+th,
+td {
+  border: 1px solid #d5dbe3;
+  padding: 5pt 6pt;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #f3f6f9;
+  font-weight: 650;
+}
+
+code {
+  font-size: 9pt;
+}
+
+em {
+  color: #4a5868;
+}

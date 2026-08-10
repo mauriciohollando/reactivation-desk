@@ -12,7 +12,9 @@
     "generate:public-figures-csv": "npx tsx scripts/generatePublicFiguresCsv.ts",
     "generate:southeast-csv": "npx tsx scripts/generateSoutheastSmallBizCsv.ts",
     "generate:healthcare-csv": "npx tsx scripts/generateMidmarketHealthcareCsv.ts",
-    "generate:analytics-csv": "npx tsx scripts/generateSmallBizAnalyticsCsv.ts"
+    "generate:analytics-csv": "npx tsx scripts/generateSmallBizAnalyticsCsv.ts",
+    "generate:advisor-a-csv": "npx tsx scripts/generateAdvisorALifeBenefitsCsv.ts",
+    "generate:pnc-csv": "npx tsx scripts/generatePandCContractorsCsv.ts"
   },
   "dependencies": {
     "next": "16.3.0",

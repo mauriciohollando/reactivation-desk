@@ -56,11 +56,11 @@ const highlightSchema = z.object({
 const prepSchema = z.object({
   person: briefSchema,
   company: briefSchema,
-  saleHighlights: z.array(highlightSchema).max(4),
-  leadWhy: z.string().max(320),
-  offerFocus: z.string().max(320),
-  approachNote: z.string().max(320),
-  talkBullets: z.array(z.string().max(320)).min(4).max(7),
+  saleHighlights: z.array(highlightSchema).max(2),
+  leadWhy: z.string().max(180),
+  offerFocus: z.string().max(180),
+  approachNote: z.string().max(180),
+  talkBullets: z.array(z.string().max(180)).min(1).max(3),
   identityStatus: z.enum(["matched", "possible", "unresolved", "file_only"]),
   identityNote: z.string().max(320),
 });
@@ -196,18 +196,17 @@ Rules:
   - public: only from search results. cite = publisher or page title. url = real https URL from search.
 - Never promote vague file crumbs as hard facts. If notes say "webinar" / "conference" with no event name or date, either omit or write: "Notes mention webinar attendance — event not named on file".
 - Never invent event names, revenue, ownership, or dates.
-- saleHighlights: 0-4 PUBLIC linked facts. text = the business fact. whyItMatters = the advisor sales angle (key-person risk, succession, liquidity, buy-sell, deferred comp, executive benefits, cash concentration, growth-stage planning) — never a generic "community engagement" fluff line.
-- leadWhy: 1-2 sentences — why THIS person is a good lead to dial now (file warmth + role + timing). Not a company description.
-- offerFocus: 1-2 sentences — which conversations to explore on this call, aligned to the practice thesis when provided. Be concrete. Do not invent that they asked for a product.
-- approachNote: one sentence on how to open (file warmth + public hook + ask).
-- talkBullets: 4-7 SALES coaching bullets for while dialing. Required mix:
-  1) Why they're worth calling now
-  2) What to explore selling / discussing (advisor offer angle)
-  3) One discovery question
-  4) One caution or preference from the file
-  Optional: public hook used as proof, not as the whole bullet list.
-  FORBIDDEN in talkBullets: repeating what the company does, product feature lists, encyclopedia facts with no sales angle.
-  Keep each bullet under 140 characters.
+- saleHighlights: 0-2 PUBLIC linked facts. Include only facts that materially prove priority or create a concrete path to an offer. text = the business fact. whyItMatters = the advisor sales angle (key-person risk, succession, liquidity, buy-sell, deferred comp, executive benefits, cash concentration, growth-stage planning). Omit generic company news.
+- leadWhy: ONE short proof point (max 120 characters) for why THIS person belongs near the top of the call list. Use the strongest file warmth, timing, role, or material public signal.
+- offerFocus: ONE concrete action (max 120 characters): the best planning / insurance / wealth conversation to explore, aligned to the practice thesis. Do not invent demand.
+- approachNote: ONE opening move (max 120 characters). Do not repeat the proof in leadWhy; translate it into what the advisor should say or ask.
+- talkBullets: 1-3 additional action items only. Each must start with exactly "Ask:", "Caution:", or "Close:" and stay under 120 characters.
+  - Ask: the single best discovery question.
+  - Caution: include only when a real preference/risk exists in the file.
+  - Close: a concrete next-step ask when supported.
+- STRICT NON-DUPLICATION: a fact, timing cue, product angle, or instruction may appear only once across leadWhy, offerFocus, approachNote, talkBullets, and saleHighlights. For example, mention "after busy season" in leadWhy OR approachNote, never both.
+- Every visible coaching item must be one of two things: (1) proof this call deserves priority, or (2) an action that helps advance/close the opportunity.
+- FORBIDDEN: company descriptions, feature lists, encyclopedia facts, repeated reminders, generic advice, and filler.
 - identityStatus is about person↔company match only, not overall evidence quality.
 - identityNote: plain language on match confidence and any synthetic/test-data caveats in the file.
 - person.summary and company.summary: 1-2 short sentences.
@@ -227,7 +226,7 @@ WHY CALL: ${p.whyCall ?? "unknown"}
 NOTES:
 ${notes || "none"}
 
-Coach the advisor on why to call, what offer conversations to explore (per thesis), and how to open. Keep company encyclopedia facts in person/company sections and saleHighlights — not in talkBullets.`,
+Return a compact call plan: one unique proof of priority, then distinct actions to open, explore, ask, and—only when supported—close or exercise caution. Never repeat the same fact in two sections. Keep company encyclopedia facts out of the coaching fields.`,
         },
       ],
     });
@@ -242,10 +241,10 @@ Coach the advisor on why to call, what offer conversations to explore (per thesi
       person: clipBrief(output.person),
       company: clipBrief(output.company),
       saleHighlights,
-      leadWhy: clip(output.leadWhy, 240),
-      offerFocus: clip(output.offerFocus, 240),
-      approachNote: clip(output.approachNote, 220),
-      talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
+      leadWhy: clip(output.leadWhy, 140),
+      offerFocus: clip(output.offerFocus, 140),
+      approachNote: clip(output.approachNote, 140),
+      talkBullets: output.talkBullets.map((b) => clip(b, 140)).slice(0, 3),
       identityStatus: hasCompany ? output.identityStatus : "file_only",
       identityNote: clip(output.identityNote, 220),
       preparedAt: new Date().toISOString(),

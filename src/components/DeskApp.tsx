@@ -1359,10 +1359,12 @@ function CallMode({
         {p.email ?? "No email"}
       </p>
 
-      <p className="why-call call-why">
-        <span className="why-label">Call because</span>
-        {p.whyCall}
-      </p>
+      {!prep && (
+        <p className="why-call call-why">
+          <span className="why-label">Call because</span>
+          {p.whyCall}
+        </p>
+      )}
       <InsightTagRow tags={p.tags} />
 
       {blocked ? (
@@ -1409,35 +1411,40 @@ function CallMode({
           )}
 
           <div className="talk-points">
-            <span className="block-label">Sell angles for this call</span>
-            <p className="muted tiny" style={{ marginTop: 0 }}>
-              Why they are worth dialing, what to explore selling, and what to ask — not a company
-              summary.
-            </p>
-            {prep && (prep.leadWhy || prep.offerFocus) && (
-              <div className="sell-angles">
+            <span className="block-label">Call plan</span>
+            {prep && (prep.leadWhy || prep.approachNote || prep.offerFocus) && (
+              <div className="call-tip-grid">
                 {prep.leadWhy && (
-                  <p>
-                    <span className="why-label">Why this lead</span>
-                    {prep.leadWhy}
-                  </p>
+                  <CallTip kind="proof" label="Why now" text={prep.leadWhy} />
+                )}
+                {prep.approachNote && (
+                  <CallTip kind="open" label="Open" text={prep.approachNote} />
                 )}
                 {prep.offerFocus && (
-                  <p>
-                    <span className="why-label">What to explore</span>
-                    {prep.offerFocus}
-                  </p>
+                  <CallTip kind="explore" label="Explore" text={prep.offerFocus} />
                 )}
+                {bullets.map((bullet) => {
+                  const match = bullet.match(/^(Ask|Caution|Close):\s*/i);
+                  const label = match?.[1] ?? "Action";
+                  return (
+                    <CallTip
+                      key={bullet}
+                      kind={label.toLowerCase()}
+                      label={label}
+                      text={bullet.replace(/^(Ask|Caution|Close):\s*/i, "")}
+                    />
+                  );
+                })}
               </div>
             )}
-            {bullets.length ? (
+            {!prep && bullets.length ? (
               <ul>
-                {bullets.map((bullet) => (
-                  <li key={bullet}>{bullet}</li>
-                ))}
+                {bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}
               </ul>
             ) : (
-              <p className="muted">Sales talk points will appear here once prep finishes.</p>
+              !prep && (
+                <p className="muted">Short proof and action tips will appear once prep finishes.</p>
+              )
             )}
             <details className="notes-history">
               <summary>Edit talk points</summary>
@@ -1507,7 +1514,8 @@ function CallMode({
 
 function CallPrepPanels({ prep }: { prep: CallPrepPacket }) {
   return (
-    <div className="prep-panels">
+    <details className="prep-panels prep-research">
+      <summary>Supporting research</summary>
       <ExpandableBrief
         title="Person"
         status={prep.identityStatus}
@@ -1521,15 +1529,26 @@ function CallPrepPanels({ prep }: { prep: CallPrepPacket }) {
       {prep.saleHighlights.length > 0 && (
         <SaleHighlightsPanel highlights={prep.saleHighlights} />
       )}
-      {prep.approachNote && (
-        <p className="approach-note">
-          <span className="why-label">How to open</span>
-          {prep.approachNote}
-        </p>
-      )}
       {prep.source !== "fallback" && prep.identityNote && (
         <p className="muted tiny">{prep.identityNote}</p>
       )}
+    </details>
+  );
+}
+
+function CallTip({
+  kind,
+  label,
+  text,
+}: {
+  kind: string;
+  label: string;
+  text: string;
+}) {
+  return (
+    <div className={`call-tip ${kind}`}>
+      <span className="call-tip-label">{label}</span>
+      <span>{text}</span>
     </div>
   );
 }
@@ -1572,7 +1591,7 @@ function ExpandableBrief({
   const publicDetails = section.details.filter((d) => d.origin === "public");
 
   return (
-    <details className="brief-card" open>
+    <details className="brief-card">
       <summary>
         <span>{title}</span>
         <em title="Identity match only — not overall evidence quality">

@@ -23,6 +23,74 @@ function clip(text: string, max: number) {
   return `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
+const DUPLICATE_STOP_WORDS = new Set([
+  "a", "an", "and", "as", "at", "be", "for", "from", "he", "her", "his", "in",
+  "is", "it", "now", "of", "on", "or", "she", "that", "the", "their", "them",
+  "they", "this", "to", "was", "with", "you", "your", "ask", "caution", "close",
+  "why", "offer", "angle", "explore", "open",
+]);
+
+function meaningfulTokens(text: string) {
+  return new Set(tokenList(text));
+}
+
+function tokenList(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !DUPLICATE_STOP_WORDS.has(token));
+}
+
+function isNearDuplicate(a: string, b: string) {
+  const leftList = tokenList(a);
+  const rightList = tokenList(b);
+  const left = meaningfulTokens(a);
+  const right = meaningfulTokens(b);
+  if (!left.size || !right.size) return false;
+  const overlap = [...left].filter((token) => right.has(token)).length;
+  const shorter = Math.min(left.size, right.size);
+  const leftPairs = new Set(leftList.slice(0, -1).map((token, i) => `${token} ${leftList[i + 1]}`));
+  const sharesPhrase = rightList
+    .slice(0, -1)
+    .some((token, i) => leftPairs.has(`${token} ${rightList[i + 1]}`));
+  return sharesPhrase || overlap >= 3 || (overlap >= 2 && overlap / shorter >= 0.5);
+}
+
+function removeRepeatedTiming(text: string, proof: string) {
+  let next = text;
+  if (/\bbusy season\b/i.test(proof) && /\bbusy season\b/i.test(next)) {
+    next = next.replace(
+      /\s*(?:to\s+)?(?:align(?:ed)?\s+with\s+)?(?:after|post)\s+(?:the\s+)?busy season(?:\s+(?:priorities|timing|needs))?/gi,
+      "",
+    );
+  }
+  return next
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/\s*[;,:-]\s*$/g, "")
+    .trim();
+}
+
+function uniqueAgainst(items: string[], anchors: string[] = []) {
+  const kept: string[] = [];
+  for (const item of items) {
+    if ([...anchors, ...kept].some((other) => isNearDuplicate(item, other))) continue;
+    kept.push(item);
+  }
+  return kept;
+}
+
+function onePerActionKind(items: string[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const kind = item.match(/^(ask|caution|close):/i)?.[1]?.toLowerCase() ?? "action";
+    if (seen.has(kind)) return false;
+    seen.add(kind);
+    return true;
+  });
+}
+
 export function isCompanyEncyclopediaBullet(text: string) {
   const t = text.trim();
   if (!t) return true;
@@ -43,11 +111,11 @@ export function isWeakSalesAngle(text: string) {
   return false;
 }
 
-export function filterTalkBullets(bullets: string[]) {
+export function filterTalkBullets(bullets: string[], anchors: string[] = []) {
   const kept = bullets
-    .map((b) => clip(b, 180))
+    .map((b) => clip(b, 140))
     .filter((b) => b && !isCompanyEncyclopediaBullet(b));
-  return kept.slice(0, 7);
+  return onePerActionKind(uniqueAgainst(kept, anchors)).slice(0, 3);
 }
 
 export function filterHighlights(items: SaleHighlight[]) {
@@ -92,30 +160,40 @@ function filterSection(section: CallBriefSection, mode: "person" | "company") {
 
 /** Fast local pass — always run before/after the AI validator. */
 export function heuristicValidateCallPrep(packet: CallPrepPacket): CallPrepPacket {
-  let talkBullets = filterTalkBullets(packet.talkBullets);
-  if (talkBullets.length < 3) {
-    // Keep originals if filter was too aggressive; AI pass can still rewrite.
-    talkBullets = packet.talkBullets.map((b) => clip(b, 180)).filter(Boolean).slice(0, 7);
+  const leadWhy = clip(packet.leadWhy, 140);
+  const offerFocus = clip(removeRepeatedTiming(packet.offerFocus, leadWhy), 140);
+  let approachNote = clip(packet.approachNote, 140);
+  if (
+    isNearDuplicate(approachNote, leadWhy) ||
+    isNearDuplicate(approachNote, offerFocus)
+  ) {
+    approachNote =
+      "Open with a brief check-in, then ask what has changed since your last conversation.";
   }
+  const talkBullets = filterTalkBullets(packet.talkBullets, [
+    leadWhy,
+    offerFocus,
+    approachNote,
+  ]);
 
   return {
     ...packet,
     person: filterSection(packet.person, "person"),
     company: filterSection(packet.company, "company"),
     saleHighlights: filterHighlights(packet.saleHighlights),
-    leadWhy: clip(packet.leadWhy, 240),
-    offerFocus: clip(packet.offerFocus, 240),
-    approachNote: clip(packet.approachNote, 220),
+    leadWhy,
+    offerFocus,
+    approachNote,
     talkBullets,
   };
 }
 
 const validateSchema = z.object({
-  leadWhy: z.string().max(320),
-  offerFocus: z.string().max(320),
-  approachNote: z.string().max(320),
-  talkBullets: z.array(z.string().max(320)).min(3).max(7),
-  keepHighlightIndexes: z.array(z.number().int().min(0).max(20)).max(4),
+  leadWhy: z.string().max(180),
+  offerFocus: z.string().max(180),
+  approachNote: z.string().max(180),
+  talkBullets: z.array(z.string().max(180)).min(1).max(3),
+  keepHighlightIndexes: z.array(z.number().int().min(0).max(20)).max(2),
   keepPersonDetailIndexes: z.array(z.number().int().min(0).max(20)).max(6),
   keepCompanyDetailIndexes: z.array(z.number().int().min(0).max(20)).max(6),
   droppedSummary: z.string().max(220),
@@ -168,10 +246,16 @@ DROP:
 - vague event claims that cannot be used on a call
 - duplicate facts
 
-Rewrite leadWhy, offerFocus, approachNote, and talkBullets so they are sales coaching.
-talkBullets must include: why now, offer angle, discovery question, caution/preference.
+Return a compact call plan where every item is either proof of priority or an action that advances the opportunity:
+- leadWhy: ONE proof this call belongs near the top, max 120 characters
+- offerFocus: ONE concrete offer conversation, max 120 characters
+- approachNote: ONE opening move, max 120 characters
+- talkBullets: 1-3 additional actions, each prefixed exactly Ask:, Caution:, or Close:
+
+Never repeat a fact, timing cue, angle, or instruction across fields. If "after busy season" proves priority in leadWhy, do not mention it anywhere else. Prefer fewer strong items.
 Return keep*Indexes as 0-based indexes into the provided arrays for highlights/details worth keeping.
-If an array item is weak, omit its index. Prefer fewer strong items.
+Keep at most two public highlights, only when each materially proves priority or supports a distinct action.
+If an array item is weak or repeats a coaching field, omit its index.
 droppedSummary: short note of what you removed (for logs).`,
       },
       {
@@ -215,10 +299,14 @@ ${JSON.stringify(
   const v = response.output_parsed;
   if (!v) throw new Error("Call prep validation returned nothing");
 
-  const talkBullets = filterTalkBullets(v.talkBullets);
-  if (talkBullets.length < 3) {
-    throw new Error("Call prep validation produced too few sales bullets");
-  }
+  const leadWhy = clip(v.leadWhy, 140);
+  const offerFocus = clip(v.offerFocus, 140);
+  const approachNote = clip(v.approachNote, 140);
+  const talkBullets = filterTalkBullets(v.talkBullets, [
+    leadWhy,
+    offerFocus,
+    approachNote,
+  ]);
 
   const saleHighlights = filterHighlights(
     pickByIndex(draft.saleHighlights, v.keepHighlightIndexes),
@@ -241,9 +329,9 @@ ${JSON.stringify(
     person: { ...draft.person, details: personDetails },
     company: { ...draft.company, details: companyDetails },
     saleHighlights,
-    leadWhy: clip(v.leadWhy, 240),
-    offerFocus: clip(v.offerFocus, 240),
-    approachNote: clip(v.approachNote, 220),
+    leadWhy,
+    offerFocus,
+    approachNote,
     talkBullets,
   };
 }

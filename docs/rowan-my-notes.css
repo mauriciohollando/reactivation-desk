@@ -1,0 +1,50 @@
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 11pt;
+  line-height: 1.45;
+  color: #1a1f24;
+}
+
+h1 {
+  font-size: 18pt;
+  margin: 0 0 12pt;
+}
+
+h2 {
+  font-size: 12.5pt;
+  margin: 16pt 0 6pt;
+  padding-top: 8pt;
+  border-top: 1px solid #d5dbe3;
+  page-break-after: avoid;
+}
+
+h2:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+h3 {
+  font-size: 11pt;
+  margin: 12pt 0 4pt;
+  page-break-after: avoid;
+}
+
+p,
+li {
+  margin: 0 0 6pt;
+}
+
+ul,
+ol {
+  margin: 0 0 8pt;
+  padding-left: 1.2em;
+}
+
+li {
+  margin-bottom: 4pt;
+}
+
+strong {
+  font-weight: 650;
+}

@@ -1134,13 +1134,11 @@ export const useDesk = create<State>()(
                   leadWhy:
                     ranked.whyCall ||
                     "File shows a reopen candidate — confirm fit before pitching.",
-                  offerFocus: `Explore conversations that fit: ${get().practiceThesis.summary} Do not invent demand.`,
+                  offerFocus: `Explore the strongest fit from the practice thesis; confirm need before pitching.`,
                   approachNote:
-                    "Open from the file reason only — public verify did not finish for this call.",
+                    "Reference the prior conversation, then ask what has changed.",
                   talkBullets: [
-                    `Why now: ${ranked.whyCall || "Reopen from file notes"}`,
-                    `Offer angle: explore ${get().practiceThesis.summary.replace(/^Curate for [^;]+; reopen for /i, "")}`,
-                    "Ask: what changed in the business since we last spoke?",
+                    "Ask: Which priority has become more urgent since we last spoke?",
                     prospect.company
                       ? `Caution: confirm role at ${prospect.company} before pitching`
                       : "Caution: confirm company and role before pitching",
