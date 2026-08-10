@@ -567,7 +567,7 @@ export function DeskApp() {
         <section className="funnel-card plan-card">
           <div className="plan-header">
             <div>
-              <h2>{campaign.prospectIds.length} people this week</h2>
+              <h2>{campaignRows.length} people this week</h2>
               <p className="muted">
                 {aiAnalyzedCount
                   ? `AI wrote call reasons · ${contacted} logged · call anyone in any order`
