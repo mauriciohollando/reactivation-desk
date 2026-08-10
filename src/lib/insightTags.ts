@@ -187,7 +187,10 @@ export function extractInsights(p: Prospect): InsightTag[] {
   if (/duplicate|same (person|company)|check phone/.test(notesL)) {
     out.push(tag("duplicate_suspect", clip(notes)));
   }
-  if (/do not email|angry|frustrated|opt-out|do not cold|no unsolicited/.test(notesL)) {
+  if (
+    !/\[test data/i.test(notes) &&
+    /do not email|angry|frustrated|opt-out|do not cold|no unsolicited/.test(notesL)
+  ) {
     out.push(tag("approach_caution", clip(notes)));
   }
 

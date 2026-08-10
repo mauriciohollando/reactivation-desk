@@ -5,7 +5,8 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 **Live:** https://reactivation-desk.vercel.app  
 **Repo:** https://github.com/mauriciohollando/reactivation-desk  
 **Memo:** https://reactivation-desk.vercel.app/memo  
-**Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv
+**Sample CSV:** https://reactivation-desk.vercel.app/demo-advisor-book.csv  
+**Public-figures test CSV (AI verify):** https://reactivation-desk.vercel.app/public-figures-test-book.csv
 
 ## What it does
 
@@ -31,6 +32,16 @@ Checkout is simulated in-browser for the assignment demo.
 ## Differentiator
 
 Rules own safety · AI cites the file · tags stay under advisor control · notes compound over time · no CRM hostage · no auto-send
+
+## Public-figures test book
+
+`public/public-figures-test-book.csv` (~500 rows) uses **real, publicly known** executives at real companies for testing AI person/company verification. Phones and emails are synthetic. Regenerated with:
+
+```bash
+npm run generate:public-figures-csv
+```
+
+Do not contact anyone in that file.
 
 ## Develop
 

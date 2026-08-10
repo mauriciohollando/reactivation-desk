@@ -214,7 +214,12 @@ function chooseNextAction(
   relationships: RelationshipInsight[],
   timeline: TimelineEvent[],
 ): { action: NextBestAction; reason: string } {
-  if (p.silenceBucket === "do_not_cold_call" || /do not contact|no unsolicited/i.test(p.notes ?? "")) {
+  // Match real opt-out language, not disclaimers like "do not contact anyone in this test file".
+  if (
+    p.silenceBucket === "do_not_cold_call" ||
+    /\b(do not contact|don't contact|do not call|don't call|no unsolicited)\b/i.test(p.notes ?? "") &&
+      !/\[TEST DATA/i.test(p.notes ?? "")
+  ) {
     return { action: "do_not_contact", reason: "Hard outreach restriction or extreme silence risk." };
   }
   if (relationships.some((r) => r.type === "possible_duplicate" && r.confidence >= 85)) {
