@@ -108,13 +108,15 @@ type State = {
 const defaultPreset = TAG_PRESETS[0]!;
 
 function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessState) {
-  const ranked = rankProspects(prospects, {});
+  // Drop per-row CSV raw maps — they duplicate every field and blow storage/memory.
+  const slim = prospects.map((p) => ({ ...p, raw: {} as Record<string, string> }));
+  const ranked = rankProspects(slim, {});
   const nextAccess =
     access.plan === "sprint" && canUseDesk(access)
       ? { ...access, sprintBooksUsed: access.sprintBooksUsed + 1 }
       : access;
   return {
-    prospects,
+    prospects: slim,
     sourceLabel,
     importSummary: buildImportSummary(prospects),
     selectedIds: [] as string[],
@@ -791,10 +793,75 @@ export const useDesk = create<State>()(
         }),
     }),
     {
-      name: "reactivation-desk-v7",
+      // Only lightweight prefs survive reloads. Full books + AI packets stay in memory
+      // so large CSVs (200–500+ rows) do not blow past localStorage quota (~5MB).
+      name: "reactivation-desk-v8",
+      partialize: (state) => ({
+        access: state.access,
+        allowedTags: state.allowedTags,
+        tagPresetId: state.tagPresetId,
+        weekBudget: state.weekBudget,
+        preferWarm: state.preferWarm,
+      }),
+      storage: {
+        getItem: (name) => {
+          try {
+            return localStorage.getItem(name);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            localStorage.setItem(name, value);
+          } catch {
+            // Free older fat desk keys, then retry once with prefs-only payload.
+            for (const key of [
+              "reactivation-desk-v5",
+              "reactivation-desk-v6",
+              "reactivation-desk-v7",
+              name,
+            ]) {
+              try {
+                localStorage.removeItem(key);
+              } catch {
+                /* ignore */
+              }
+            }
+            try {
+              localStorage.setItem(name, value);
+            } catch {
+              // Last resort: keep the session in memory only.
+              console.warn("Desk prefs could not be persisted (storage full).");
+            }
+          }
+        },
+        removeItem: (name) => {
+          try {
+            localStorage.removeItem(name);
+          } catch {
+            /* ignore */
+          }
+        },
+      },
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<State>),
+        // Never hydrate a persisted book — those keys are intentionally omitted.
+        prospects: currentState.prospects,
+        outcomes: currentState.outcomes,
+        talkEdits: currentState.talkEdits,
+        reasonHeld: currentState.reasonHeld,
+        campaign: currentState.campaign,
+        selectedIds: currentState.selectedIds,
+        sourceLabel: currentState.sourceLabel,
+        importSummary: currentState.importSummary,
+        analyses: currentState.analyses,
+        webEvidence: currentState.webEvidence,
+        callPreps: currentState.callPreps,
+        tagFilters: currentState.tagFilters,
+        step: currentState.step,
+        callIndex: currentState.callIndex,
         analysisStatus: "ready",
         analysisError: null,
         enrichStatus: "idle",
@@ -803,7 +870,23 @@ export const useDesk = create<State>()(
         noteError: null,
         prepStatus: "idle",
         prepError: null,
+        aiAnalyzedCount: 0,
       }),
+      onRehydrateStorage: () => {
+        // Drop legacy full-book caches that may already be filling the quota.
+        for (const key of [
+          "reactivation-desk-v5",
+          "reactivation-desk-v6",
+          "reactivation-desk-v7",
+        ]) {
+          try {
+            localStorage.removeItem(key);
+          } catch {
+            /* ignore */
+          }
+        }
+        return undefined;
+      },
     },
   ),
 );
