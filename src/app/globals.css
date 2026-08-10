@@ -2631,3 +2631,15 @@ select:focus {
     justify-self: start;
   }
 }
+
+.campaign-brief {
+  margin: 0.85rem 0 1rem;
+}
+
+.campaign-brief textarea {
+  margin-top: 0.35rem;
+}
+
+.campaign-brief .tiny {
+  margin: 0.4rem 0 0;
+}

@@ -13,10 +13,10 @@ Rowan Round 3 prototype: export-native reactivation for independent advisors.
 Turn a messy prospect export into a finishable weekly call list:
 
 1. **Unlock** — one-time sprint or unlimited subscription (promo codes skip payment in the prototype)
-2. **Import** — sample book or CSV, with a controlled tag vocabulary AI must respect
-3. **Ready** — see callable / careful / off-limits; optionally improve reasons & tags with AI
-4. **This week** — short capacity-aware list with cited “call because” lines
-5. **Call** — one card at a time; paste human or AI-notetaker notes to update the file
+2. **Import** — upload CSV, with a controlled tag vocabulary AI must respect
+3. **Ready** — see callable / careful / off-limits; optional campaign brief (“automotive”, “warm referrals”)
+4. **This week** — AI-built capacity-aware list with cited “call because” lines
+5. **Call** — open anyone in any order; person/company briefs, talk points, freeform outcome logging
 6. **Wrap** — export durable week outcomes
 
 ## Monetization (prototype)

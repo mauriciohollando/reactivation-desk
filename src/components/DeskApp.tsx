@@ -79,7 +79,6 @@ export function DeskApp() {
   const callPreps = useDesk((s) => s.callPreps);
   const aiAnalyzedCount = useDesk((s) => s.aiAnalyzedCount);
   const analysisError = useDesk((s) => s.analysisError);
-  const loadDemoBook = useDesk((s) => s.loadDemoBook);
   const loadProspects = useDesk((s) => s.loadProspects);
   const setTagPreset = useDesk((s) => s.setTagPreset);
   const toggleAllowedTag = useDesk((s) => s.toggleAllowedTag);
@@ -88,6 +87,9 @@ export function DeskApp() {
   const unlockWithPromo = useDesk((s) => s.unlockWithPromo);
   const toggleTagFilter = useDesk((s) => s.toggleTagFilter);
   const clearTagFilters = useDesk((s) => s.clearTagFilters);
+  const campaignBrief = useDesk((s) => s.campaignBrief);
+  const campaignInterpretedAs = useDesk((s) => s.campaignInterpretedAs);
+  const setCampaignBrief = useDesk((s) => s.setCampaignBrief);
   const buildWeekWithAi = useDesk((s) => s.buildWeekWithAi);
   const openCall = useDesk((s) => s.openCall);
   const prepareCall = useDesk((s) => s.prepareCall);
@@ -182,14 +184,6 @@ export function DeskApp() {
     );
     setPendingRows(null);
     setCsvError(null);
-  };
-
-  const startWithDemo = () => {
-    if (!canUseDesk(access)) {
-      setPromoError("Unlock below first — or enter a promo code.");
-      return;
-    }
-    loadDemoBook();
   };
 
   const exportCampaign = () => {
@@ -377,18 +371,13 @@ export function DeskApp() {
               type="button"
               className="btn primary lg"
               disabled={!canImport}
-              onClick={startWithDemo}
-            >
-              Use sample book
-            </button>
-            <button
-              type="button"
-              className="btn lg"
-              disabled={!canImport}
               onClick={() => fileRef.current?.click()}
             >
               Upload CSV
             </button>
+            <a className="btn ghost" href="/public-figures-test-book.csv" download>
+              Download example CSV
+            </a>
           </div>
           {!canImport && access.plan !== "none" && (
             <p className="error">
@@ -508,14 +497,38 @@ export function DeskApp() {
             <p className="error">Need phone or email on some rows before calling.</p>
           )}
 
+          <div className="campaign-brief">
+            <label className="block-label" htmlFor="campaign-brief">
+              What kind of week do you want? (optional)
+            </label>
+            <textarea
+              id="campaign-brief"
+              value={campaignBrief}
+              onChange={(e) => setCampaignBrief(e.target.value)}
+              rows={3}
+              disabled={enrichStatus === "running"}
+              placeholder='e.g. “Find automotive / dealer companies” or “People with a warm connection or referral to me”'
+            />
+            <p className="muted tiny">
+              Leave blank for the default ranking. With a prompt, AI curates the list from notes and
+              tags only — it will not invent matches.
+            </p>
+          </div>
+
           {enrichStatus === "running" ? (
             <div className="ai-building" role="status" aria-live="polite">
               <div className="ai-building-pulse" aria-hidden />
               <div>
-                <strong>Building your week with AI…</strong>
+                <strong>
+                  {campaignBrief.trim()
+                    ? "Curating your week from that brief…"
+                    : "Building your week with AI…"}
+                </strong>
                 <p>
-                  Reading notes, applying your tags, and writing a concrete reason to call each
-                  person. This usually takes a few seconds.
+                  {campaignBrief.trim()
+                    ? "Matching your instruction against the book, then writing call reasons."
+                    : "Reading notes, applying your tags, and writing a concrete reason to call each person."}{" "}
+                  This usually takes a few seconds.
                 </p>
               </div>
             </div>
@@ -527,10 +540,12 @@ export function DeskApp() {
                 disabled={blockCalling || !allowedTags.length}
                 onClick={() => void buildWeekWithAi(weekBudget)}
               >
-                Build {weekBudget}-call week with AI
+                {campaignBrief.trim()
+                  ? `Build ${weekBudget}-call week from brief`
+                  : `Build ${weekBudget}-call week with AI`}
               </button>
               <p className="muted tiny">
-                AI writes the “call because” lines from your notes using only the tags you allowed.
+                Hard stops stay rule-based. AI only uses your file and allowed tags.
               </p>
             </div>
           )}
@@ -558,6 +573,12 @@ export function DeskApp() {
               </button>
             )}
           </div>
+
+          {campaignInterpretedAs && (
+            <div className="ai-week-banner">
+              Brief understood as: {campaignInterpretedAs}
+            </div>
+          )}
 
           <div className="plan-list">
             {filteredCampaignRows.map((p) => {

@@ -65,6 +65,8 @@ type State = {
   allowedTags: AllowedTag[];
   tagPresetId: string;
   access: AccessState;
+  campaignBrief: string;
+  campaignInterpretedAs: string | null;
   enrichStatus: "idle" | "running" | "complete" | "error";
   enrichError: string | null;
   noteStatus: "idle" | "running" | "error";
@@ -82,6 +84,7 @@ type State = {
   toggleSelect: (id: string) => void;
   toggleTagFilter: (id: string) => void;
   clearTagFilters: () => void;
+  setCampaignBrief: (brief: string) => void;
   enrichImportedBook: (count?: number) => Promise<boolean>;
   deepenTopProspects: (count?: number) => Promise<boolean>;
   appendProspectNote: (id: string, noteText: string) => Promise<boolean>;
@@ -89,7 +92,7 @@ type State = {
   logFreeformOutcome: (id: string, freeText: string) => Promise<boolean>;
   refreshPublicEvidence: (id: string) => Promise<void>;
   buildWeekPlan: (n?: WeekBudget) => void;
-  /** Enrich callable prospects with AI, then build the week list. */
+  /** Enrich / curate with AI, then build the week list. */
   buildWeekWithAi: (n?: WeekBudget) => Promise<void>;
   openCall: (id: string) => void;
   clearSelection: () => void;
@@ -131,6 +134,7 @@ function applyBook(prospects: Prospect[], sourceLabel: string, access: AccessSta
     analysisStatus: "ready" as const,
     analysisError: null as string | null,
     aiAnalyzedCount: 0,
+    campaignInterpretedAs: null as string | null,
     enrichStatus: "idle" as const,
     enrichError: null as string | null,
     noteStatus: "idle" as const,
@@ -168,6 +172,8 @@ export const useDesk = create<State>()(
       allowedTags: defaultPreset.tags,
       tagPresetId: defaultPreset.id,
       access: emptyAccess(),
+      campaignBrief: "",
+      campaignInterpretedAs: null,
       enrichStatus: "idle",
       enrichError: null,
       noteStatus: "idle",
@@ -363,13 +369,135 @@ export const useDesk = create<State>()(
         }
       },
       deepenTopProspects: async (count = 25) => get().enrichImportedBook(count),
+      setCampaignBrief: (brief) => set({ campaignBrief: brief }),
       buildWeekWithAi: async (n) => {
         const budget = n ?? get().weekBudget;
-        // Enrich a shortlist large enough to rank a strong week, not the whole book.
-        const enrichCount = Math.min(40, Math.max(budget * 3, 20));
-        await get().enrichImportedBook(enrichCount);
-        // Always build the week — AI failure still yields a rules-based list.
-        get().buildWeekPlan(budget);
+        const brief = get().campaignBrief.trim();
+        if (!brief) {
+          const enrichCount = Math.min(40, Math.max(budget * 3, 20));
+          await get().enrichImportedBook(enrichCount);
+          get().buildWeekPlan(budget);
+          return;
+        }
+
+        // Campaign brief path: AI curates the week from a callable shortlist.
+        const preferWarm = get().preferWarm;
+        let ranked = get()
+          .ranked()
+          .filter(
+            (p) =>
+              p.silenceBucket !== "do_not_cold_call" && Boolean(p.phone || p.email),
+          );
+        if (preferWarm) {
+          ranked = [
+            ...ranked.filter((p) => p.silenceBucket === "safe_reopen"),
+            ...ranked.filter((p) => p.silenceBucket === "handle_with_care"),
+          ];
+        }
+        const shortlist = ranked.slice(0, 50);
+        if (!shortlist.length) {
+          set({
+            enrichStatus: "error",
+            enrichError: "No callable people found for this brief.",
+          });
+          return;
+        }
+
+        const allowedTags = get().allowedTags;
+        if (!allowedTags.length) {
+          set({
+            enrichStatus: "error",
+            enrichError: "Select at least one allowed tag.",
+          });
+          return;
+        }
+
+        set({ enrichStatus: "running", enrichError: null, campaignInterpretedAs: null });
+        try {
+          const response = await fetch("/api/campaign-week", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              brief,
+              budget,
+              preferWarm,
+              allowedTags,
+              prospects: shortlist.map((p) => ({
+                id: p.id,
+                name: p.name,
+                company: p.company,
+                title: p.title,
+                segment: p.segment,
+                source: p.source,
+                lastTouch: p.lastTouch,
+                notes: p.notes,
+                estimatedValue: p.estimatedValue,
+                silenceBucket: p.silenceBucket,
+                phonePresent: Boolean(p.phone),
+                emailPresent: Boolean(p.email),
+              })),
+            }),
+          });
+          const body = (await response.json()) as {
+            interpretedAs?: string;
+            picks?: {
+              prospectId: string;
+              whyCall: string;
+              whySupport: string;
+              fitNote: string;
+              tags: InsightTag[];
+            }[];
+            error?: string;
+          };
+          if (!response.ok || !body.picks) {
+            throw new Error(body.error ?? "Campaign week failed");
+          }
+
+          const byId = new Map(body.picks.map((p) => [p.prospectId, p]));
+          const prospects = get().prospects.map((p) => {
+            const pick = byId.get(p.id);
+            if (!pick) return p;
+            return {
+              ...p,
+              enrichmentTags: pick.tags,
+              whyCallOverride: pick.whyCall,
+              whySupportOverride: pick.fitNote
+                ? `${pick.whySupport}${pick.whySupport ? " · " : ""}${pick.fitNote}`
+                : pick.whySupport,
+            };
+          });
+          const pickIds = body.picks.map((p) => p.prospectId);
+
+          set({
+            prospects,
+            importSummary: buildImportSummary(prospects),
+            analyses: analyzeBookLocally(rankProspects(prospects, get().outcomes)),
+            selectedIds: pickIds,
+            campaign: {
+              id: `camp-${Date.now()}`,
+              name: `Week of ${new Date().toISOString().slice(0, 10)}`,
+              createdAt: new Date().toISOString(),
+              prospectIds: pickIds,
+            },
+            weekBudget: budget,
+            campaignInterpretedAs: body.interpretedAs ?? brief,
+            enrichStatus: "complete",
+            enrichError: pickIds.length
+              ? null
+              : "No strong matches for that brief. Try broader wording or clear the prompt.",
+            aiAnalyzedCount: pickIds.length,
+            step: pickIds.length ? "plan" : "diagnose",
+            callIndex: 0,
+          });
+        } catch (error) {
+          set({
+            enrichStatus: "error",
+            enrichError:
+              error instanceof Error
+                ? error.message
+                : "AI campaign week failed. Try again or clear the prompt for the default list.",
+          });
+        }
       },
       openCall: (id) => {
         const campaign = get().campaign;
@@ -783,13 +911,14 @@ export const useDesk = create<State>()(
           analysisStatus: "ready",
           analysisError: null,
           aiAnalyzedCount: 0,
+          campaignInterpretedAs: null,
           enrichStatus: "idle",
           enrichError: null,
           noteStatus: "idle",
           noteError: null,
           prepStatus: "idle",
           prepError: null,
-          // Keep access + tag vocabulary across books.
+          // Keep access + tag vocabulary (+ optional campaign brief) across books.
         }),
     }),
     {
@@ -802,6 +931,7 @@ export const useDesk = create<State>()(
         tagPresetId: state.tagPresetId,
         weekBudget: state.weekBudget,
         preferWarm: state.preferWarm,
+        campaignBrief: state.campaignBrief,
       }),
       storage: createJSONStorage(() => {
         const safe: Storage = {
