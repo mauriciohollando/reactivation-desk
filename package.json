@@ -10,7 +10,9 @@
     "test:analysis": "npx tsx scripts/validateAnalysis.ts",
     "generate:meeting-csv": "npx tsx scripts/generateMeetingCrmCsv.ts",
     "generate:public-figures-csv": "npx tsx scripts/generatePublicFiguresCsv.ts",
-    "generate:southeast-csv": "npx tsx scripts/generateSoutheastSmallBizCsv.ts"
+    "generate:southeast-csv": "npx tsx scripts/generateSoutheastSmallBizCsv.ts",
+    "generate:healthcare-csv": "npx tsx scripts/generateMidmarketHealthcareCsv.ts",
+    "generate:analytics-csv": "npx tsx scripts/generateSmallBizAnalyticsCsv.ts"
   },
   "dependencies": {
     "next": "16.3.0",
