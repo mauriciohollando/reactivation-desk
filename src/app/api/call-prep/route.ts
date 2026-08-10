@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { getOpenAI } from "@/lib/openai";
+import type { BriefDetail, SaleHighlight } from "@/lib/callPrepTypes";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -19,11 +20,17 @@ const inputSchema = z.object({
   }),
 });
 
-// Keep ceilings generous — web_search answers often overrun short maxes and
-// zodTextFormat rejects the whole packet (503). We still clip before respond.
+// Generous ceilings — web_search + structured output often overruns tight maxes.
+const detailSchema = z.object({
+  text: z.string().max(500),
+  origin: z.enum(["file", "public"]),
+  cite: z.string().max(320),
+  url: z.string().max(2000),
+});
+
 const briefSchema = z.object({
   summary: z.string().max(500),
-  details: z.array(z.string().max(500)).max(6),
+  details: z.array(detailSchema).max(6),
   sources: z
     .array(
       z.object({
@@ -34,9 +41,18 @@ const briefSchema = z.object({
     .max(4),
 });
 
+const highlightSchema = z.object({
+  text: z.string().max(420),
+  whyItMatters: z.string().max(280),
+  publisher: z.string().max(120),
+  url: z.string().max(2000),
+});
+
 const prepSchema = z.object({
   person: briefSchema,
   company: briefSchema,
+  saleHighlights: z.array(highlightSchema).max(4),
+  approachNote: z.string().max(320),
   talkBullets: z.array(z.string().max(320)).min(3).max(7),
   identityStatus: z.enum(["matched", "possible", "unresolved", "file_only"]),
   identityNote: z.string().max(320),
@@ -48,18 +64,92 @@ function clip(text: string, max: number) {
   return `${t.slice(0, max - 1).trimEnd()}…`;
 }
 
+function isVagueEventClaim(text: string) {
+  const t = text.toLowerCase();
+  const vagueEvent =
+    /\b(webinar|conference|event|summit|panel|podcast)\b/.test(t) &&
+    !/\b(20\d{2}|january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(
+      t,
+    );
+  const unnamed =
+    /\b(recent|a webinar|an event|industry conference|sector news)\b/.test(t) &&
+    !/\b(named|titled|called)\b/.test(t);
+  return vagueEvent || (unnamed && /\b(webinar|conference|event)\b/.test(t));
+}
+
+function clipDetail(detail: z.infer<typeof detailSchema>): BriefDetail | null {
+  const text = clip(detail.text, 220);
+  if (!text) return null;
+  const origin = detail.origin === "public" ? "public" : "file";
+  const url = origin === "public" ? detail.url.trim().slice(0, 400) : "";
+  const cite = clip(detail.cite || "", 160);
+
+  // Public claims need a real URL.
+  if (origin === "public" && !/^https?:\/\//i.test(url)) return null;
+
+  // Drop or rewrite vague event claims with no name/date/link.
+  if (origin === "file" && isVagueEventClaim(text) && !cite) {
+    return {
+      text: "Notes mention an event or webinar — specific name not on file",
+      origin: "file",
+      cite: cite || "file notes",
+      url: "",
+    };
+  }
+  if (origin === "public" && isVagueEventClaim(text)) {
+    // Keep only if URL present (already required) and text isn't totally empty of specifics.
+    if (!/\b(20\d{2}|[A-Z][a-z]+ \d{1,2})\b/.test(detail.text) && text.length < 40) {
+      return null;
+    }
+  }
+
+  return { text, origin, cite, url };
+}
+
 function clipBrief(section: z.infer<typeof briefSchema>) {
+  const details = section.details
+    .map(clipDetail)
+    .filter((d): d is BriefDetail => Boolean(d))
+    .slice(0, 6);
+  const sources = section.sources
+    .map((s) => ({
+      label: clip(s.label, 80),
+      url: s.url.trim().slice(0, 400),
+    }))
+    .filter((s) => s.label && /^https?:\/\//i.test(s.url))
+    .slice(0, 4);
+
+  // Pull source links from public details if sources array was thin.
+  for (const d of details) {
+    if (d.origin === "public" && d.url && !sources.some((s) => s.url === d.url)) {
+      sources.push({ label: clip(d.cite || "Source", 80), url: d.url });
+    }
+    if (sources.length >= 4) break;
+  }
+
   return {
     summary: clip(section.summary, 280),
-    details: section.details.map((d) => clip(d, 220)).slice(0, 6),
-    sources: section.sources
-      .map((s) => ({
-        label: clip(s.label, 80),
-        url: s.url.trim().slice(0, 400),
-      }))
-      .filter((s) => s.label && s.url)
-      .slice(0, 4),
+    details,
+    sources: sources.slice(0, 4),
   };
+}
+
+function clipHighlights(
+  items: z.infer<typeof highlightSchema>[],
+): SaleHighlight[] {
+  return items
+    .map((item) => {
+      const url = item.url.trim().slice(0, 400);
+      if (!/^https?:\/\//i.test(url)) return null;
+      const text = clip(item.text, 260);
+      const whyItMatters = clip(item.whyItMatters, 180);
+      const publisher = clip(item.publisher || "Source", 80);
+      if (!text || !whyItMatters) return null;
+      if (isVagueEventClaim(text) && text.length < 50) return null;
+      return { text, whyItMatters, publisher, url };
+    })
+    .filter((item): item is SaleHighlight => Boolean(item))
+    .slice(0, 4);
 }
 
 export async function POST(request: Request) {
@@ -83,18 +173,26 @@ export async function POST(request: Request) {
       input: [
         {
           role: "system",
-          content: `You prepare a short, practical call brief for a financial advisor.
+          content: `You prepare a short, practical call brief for a financial advisor selling planning / insurance / wealth conversations to business owners and executives.
+
+Every detail must answer: what exactly, and how do we know?
 
 Rules:
-- Ground person summary first in the CRM/file notes and why-call reason.
-- If a company is provided, lightly verify public business facts (role association, company what-they-do, material recent events). Prefer official sites and reputable business news.
+- Ground person.summary first in CRM/file notes and the why-call reason.
+- If a company is provided, use web_search for public BUSINESS facts: role association, what the company does, material recent events (funding, launch, earnings, leadership, M&A, expansion). Prefer official sites and reputable business news.
 - Do NOT research personal life, family, politics, health, or home addresses.
-- person.summary and company.summary: 1-2 short sentences (under 220 chars each).
-- details: short facts only, each under 180 characters. Use [] when unknown.
-- sources only from real search results; use [] when file-only.
-- talkBullets: 3-7 short bullets (under 140 chars) the advisor can glance at while dialing — opening angle, key facts, questions, caution. No long scripts.
-- If company is missing or identity is unclear, set identityStatus to file_only or unresolved and say so in identityNote.
-- Never invent revenue, ownership, or events not supported by file or sources.`,
+- details[].origin must be "file" or "public".
+  - file: only from notes/fields. cite = short verbatim quote or field label. url = "".
+  - public: only from search results. cite = publisher or page title. url = real https URL from search.
+- Never promote vague file crumbs as hard facts. If notes say "webinar" / "conference" with no event name or date, either omit or write: "Notes mention webinar attendance — event not named on file".
+- Never invent event names, revenue, ownership, or dates.
+- saleHighlights: 0-4 PUBLIC, linked facts that help the advisor open the call and spot planning relevance (liquidity, growth, leadership change, product/market moves). Each needs text, whyItMatters (advisor angle), publisher, url. Use [] if nothing solid.
+- approachNote: one sentence coaching how to open (file warmth + public hook + caution).
+- talkBullets: 3-7 glanceable bullets — open, public hook, question, preference/caution. Under 140 chars each.
+- identityStatus is about person↔company match only, not overall evidence quality.
+- identityNote: plain language on match confidence and any synthetic/test-data caveats in the file.
+- person.summary and company.summary: 1-2 short sentences.
+- sources: public URLs only; [] when file-only.`,
         },
         {
           role: "user",
@@ -108,7 +206,9 @@ LAST TOUCH: ${p.lastTouch ?? "unknown"}
 ESTIMATED VALUE: ${p.estimatedValue ?? "unknown"}
 WHY CALL: ${p.whyCall ?? "unknown"}
 NOTES:
-${notes || "none"}`,
+${notes || "none"}
+
+Return structured evidence with clear file vs public provenance. Prefer a few strong public sale highlights with links over many thin bullets.`,
         },
       ],
     });
@@ -116,11 +216,15 @@ ${notes || "none"}`,
     const output = response.output_parsed;
     if (!output) throw new Error("OpenAI returned no call prep");
 
+    const saleHighlights = hasCompany ? clipHighlights(output.saleHighlights) : [];
+
     return Response.json({
       packet: {
         prospectId: p.id,
         person: clipBrief(output.person),
         company: clipBrief(output.company),
+        saleHighlights,
+        approachNote: clip(output.approachNote, 220),
         talkBullets: output.talkBullets.map((b) => clip(b, 180)).slice(0, 7),
         identityStatus: hasCompany ? output.identityStatus : "file_only",
         identityNote: clip(output.identityNote, 220),

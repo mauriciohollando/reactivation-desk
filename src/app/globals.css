@@ -2531,6 +2531,128 @@ select:focus {
   font-weight: 600;
 }
 
+.prep-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.brief-origin-label {
+  margin: 0.65rem 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.brief-detail-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+
+.brief-detail-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.5rem;
+  align-items: start;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.brief-detail-list li:last-child {
+  border-bottom: none;
+}
+
+.brief-detail-list a,
+.brief-cite {
+  grid-column: 2;
+  font-size: 0.75rem;
+}
+
+.brief-cite {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.origin-chip {
+  display: inline-block;
+  margin-top: 0.1rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.origin-chip.file {
+  color: #3d4a5c;
+  background: #e8edf3;
+}
+
+.origin-chip.public {
+  color: #0b5cab;
+  background: #dcebff;
+}
+
+.sale-highlights {
+  margin: 0.55rem 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid #c9e2c9;
+  border-radius: var(--radius-sm);
+  background: #f4fbf4;
+}
+
+.sale-highlights ul {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+}
+
+.sale-highlights li {
+  padding: 0.55rem 0;
+  border-top: 1px solid #d7ead7;
+}
+
+.sale-highlights li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.sale-highlight-text {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.sale-highlight-why {
+  margin: 0.35rem 0 0.4rem;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.sale-highlights a {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.approach-note {
+  margin: 0.55rem 0;
+  padding: 0.75rem 0.9rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .talk-points {
   margin: 1rem 0;
   padding: 0.85rem 1rem;

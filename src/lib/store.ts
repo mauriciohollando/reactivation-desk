@@ -17,6 +17,7 @@ import {
   shortlistForBrief,
 } from "./briefMatch";
 import type { CallPrepPacket } from "./callPrepTypes";
+import { normalizeCallPrepPacket } from "./callPrepTypes";
 import type { InsightTag } from "./insightTags";
 import {
   buildImportSummary,
@@ -559,7 +560,10 @@ export const useDesk = create<State>()(
           if (!response.ok || !body.packet) {
             throw new Error(body.error ?? "Call prep failed");
           }
-          const packet: CallPrepPacket = { ...body.packet, source: "ai" };
+          const packet = normalizeCallPrepPacket({
+            ...body.packet,
+            source: "ai",
+          });
           const bullets = packet.talkBullets.join("\n");
           set({
             callPreps: { ...get().callPreps, [id]: packet },
@@ -573,17 +577,40 @@ export const useDesk = create<State>()(
           return true;
         } catch (error) {
           // Local fallback brief from file only.
+          const fileDetails = [
+            prospect.title
+              ? {
+                  text: `Title on file: ${prospect.title}`,
+                  origin: "file" as const,
+                  cite: "title",
+                  url: "",
+                }
+              : null,
+            prospect.lastTouch
+              ? {
+                  text: `Last touch: ${prospect.lastTouch}`,
+                  origin: "file" as const,
+                  cite: "last touch",
+                  url: "",
+                }
+              : null,
+            prospect.estimatedValue
+              ? {
+                  text: `Value signal: ${prospect.estimatedValue}`,
+                  origin: "file" as const,
+                  cite: "value",
+                  url: "",
+                }
+              : null,
+          ].filter(Boolean) as CallPrepPacket["person"]["details"];
+
           const fallback: CallPrepPacket = {
             prospectId: id,
             person: {
               summary:
                 ranked.whyCall ||
                 (prospect.notes?.slice(0, 180) ?? "Limited file notes for this person."),
-              details: [
-                prospect.title ? `Title on file: ${prospect.title}` : "",
-                prospect.lastTouch ? `Last touch: ${prospect.lastTouch}` : "",
-                prospect.estimatedValue ? `Value signal: ${prospect.estimatedValue}` : "",
-              ].filter(Boolean),
+              details: fileDetails,
               sources: [],
             },
             company: {
@@ -593,6 +620,9 @@ export const useDesk = create<State>()(
               details: [],
               sources: [],
             },
+            saleHighlights: [],
+            approachNote:
+              "Open from the file reason only — public verify did not finish for this call.",
             talkBullets: [
               ranked.whyCall,
               prospect.company ? `Company on file: ${prospect.company}` : "Confirm company/role",

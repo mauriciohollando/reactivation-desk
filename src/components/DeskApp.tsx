@@ -8,7 +8,8 @@ import {
   accessLabel,
   canUseDesk,
 } from "@/lib/access";
-import type { CallBriefSection, CallPrepPacket } from "@/lib/callPrepTypes";
+import type { CallBriefSection, CallPrepPacket, SaleHighlight } from "@/lib/callPrepTypes";
+import { normalizeCallPrepPacket } from "@/lib/callPrepTypes";
 import type { InsightTag } from "@/lib/insightTags";
 import {
   excludedFromPlan,
@@ -895,21 +896,7 @@ function CallMode({
           )}
 
           {prep && (
-            <>
-              <ExpandableBrief
-                title="Person"
-                status={prep.identityStatus}
-                section={prep.person}
-              />
-              <ExpandableBrief
-                title="Company"
-                status={prep.identityStatus}
-                section={prep.company}
-              />
-              {prep.source !== "fallback" && prep.identityNote && (
-                <p className="muted tiny">{prep.identityNote}</p>
-              )}
-            </>
+            <CallPrepPanels prep={normalizeCallPrepPacket(prep)} />
           )}
           {prepError && (
             <p className="error">
@@ -994,6 +981,60 @@ function CallMode({
   );
 }
 
+function CallPrepPanels({ prep }: { prep: CallPrepPacket }) {
+  return (
+    <div className="prep-panels">
+      <ExpandableBrief
+        title="Person"
+        status={prep.identityStatus}
+        section={prep.person}
+      />
+      <ExpandableBrief
+        title="Company"
+        status={prep.identityStatus}
+        section={prep.company}
+      />
+      {prep.saleHighlights.length > 0 && (
+        <SaleHighlightsPanel highlights={prep.saleHighlights} />
+      )}
+      {prep.approachNote && (
+        <p className="approach-note">
+          <span className="why-label">How to open</span>
+          {prep.approachNote}
+        </p>
+      )}
+      {prep.source !== "fallback" && prep.identityNote && (
+        <p className="muted tiny">{prep.identityNote}</p>
+      )}
+    </div>
+  );
+}
+
+function SaleHighlightsPanel({ highlights }: { highlights: SaleHighlight[] }) {
+  return (
+    <div className="sale-highlights">
+      <span className="block-label">Public highlights for this call</span>
+      <p className="muted tiny" style={{ marginTop: 0 }}>
+        Verified from web sources — use as conversation fuel, not as personal intel.
+      </p>
+      <ul>
+        {highlights.map((item) => (
+          <li key={`${item.url}-${item.text}`}>
+            <p className="sale-highlight-text">{item.text}</p>
+            <p className="sale-highlight-why">
+              <span className="why-label">Why it helps</span>
+              {item.whyItMatters}
+            </p>
+            <a href={item.url} target="_blank" rel="noreferrer">
+              {item.publisher || "Open source"}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ExpandableBrief({
   title,
   section,
@@ -1003,22 +1044,54 @@ function ExpandableBrief({
   section: CallBriefSection;
   status: CallPrepPacket["identityStatus"];
 }) {
+  const fileDetails = section.details.filter((d) => d.origin === "file");
+  const publicDetails = section.details.filter((d) => d.origin === "public");
+
   return (
     <details className="brief-card" open>
       <summary>
         <span>{title}</span>
-        <em>{status.replace("_", " ")}</em>
+        <em title="Identity match only — not overall evidence quality">
+          {status.replace("_", " ")}
+        </em>
       </summary>
       <p className="brief-summary">{section.summary}</p>
       {(section.details.length > 0 || section.sources.length > 0) && (
         <details className="brief-more">
           <summary>More detail</summary>
-          {section.details.length > 0 && (
-            <ul>
-              {section.details.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+          {fileDetails.length > 0 && (
+            <>
+              <p className="brief-origin-label">From your file</p>
+              <ul className="brief-detail-list">
+                {fileDetails.map((item) => (
+                  <li key={`file-${item.text}`}>
+                    <span className="origin-chip file">File</span>
+                    <span>{item.text}</span>
+                    {item.cite ? <em className="brief-cite">“{item.cite}”</em> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {publicDetails.length > 0 && (
+            <>
+              <p className="brief-origin-label">From public sources</p>
+              <ul className="brief-detail-list">
+                {publicDetails.map((item) => (
+                  <li key={`public-${item.text}`}>
+                    <span className="origin-chip public">Public</span>
+                    <span>{item.text}</span>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer">
+                        {item.cite || "Source"}
+                      </a>
+                    ) : item.cite ? (
+                      <em className="brief-cite">{item.cite}</em>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           {section.sources.length > 0 && (
             <div className="brief-sources">
