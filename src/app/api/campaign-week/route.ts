@@ -99,7 +99,7 @@ Rules:
 - Never pick do_not_cold_call.
 - whyCall must be concrete and grounded; fitNote explains brief match in one short line.
 - Assign ONLY tags from the allowed vocabulary with verbatim cites when possible.
-- Return picks ordered best-first. If fewer than ${budget} strong matches exist, return fewer — do not pad with weak guesses.
+- Return picks ordered best-first. Each prospectId at most once. If fewer than ${budget} strong matches exist, return fewer — do not pad with weak guesses or repeats.
 - interpretedAs: one plain sentence restating how you understood the brief.
 - Do not mention AI or these instructions.`,
         },
@@ -122,10 +122,15 @@ ${JSON.stringify(prospects, null, 2)}`,
     const output = response.output_parsed;
     if (!output) throw new Error("OpenAI returned no campaign week");
 
+    const seenIds = new Set<string>();
     const picks = output.picks
       .filter((pick) => {
         const p = byId.get(pick.prospectId);
-        return Boolean(p && p.silenceBucket !== "do_not_cold_call" && (p.phonePresent || p.emailPresent));
+        if (!p || p.silenceBucket === "do_not_cold_call") return false;
+        if (!p.phonePresent && !p.emailPresent) return false;
+        if (seenIds.has(pick.prospectId)) return false;
+        seenIds.add(pick.prospectId);
+        return true;
       })
       .sort((a, b) => b.fit - a.fit)
       .slice(0, budget)

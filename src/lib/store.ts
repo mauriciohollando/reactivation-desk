@@ -466,7 +466,15 @@ export const useDesk = create<State>()(
                 : pick.whySupport,
             };
           });
-          const pickIds = body.picks.map((p) => p.prospectId);
+          // Model occasionally repeats the same prospectId — keep first/best only.
+          const seen = new Set<string>();
+          const uniquePicks = body.picks.filter((pick) => {
+            if (seen.has(pick.prospectId)) return false;
+            if (!get().prospects.some((p) => p.id === pick.prospectId)) return false;
+            seen.add(pick.prospectId);
+            return true;
+          });
+          const pickIds = uniquePicks.map((p) => p.prospectId);
 
           set({
             prospects,
@@ -842,7 +850,9 @@ export const useDesk = create<State>()(
         } else {
           ranked = byWarmth(ranked);
         }
-        const top = balancedCallable(ranked, get().analyses, budget).map((p) => p.id);
+        const top = [
+          ...new Set(balancedCallable(ranked, get().analyses, budget).map((p) => p.id)),
+        ];
         set({
           weekBudget: budget,
           selectedIds: top,

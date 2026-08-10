@@ -122,9 +122,16 @@ export function DeskApp() {
   const excluded = useMemo(() => excludedFromPlan(rankedLive), [rankedLive]);
   const campaignRows = useMemo(() => {
     if (!campaign) return [] as RankedProspect[];
-    return campaign.prospectIds
-      .map((id) => rankedLive.find((p) => p.id === id))
-      .filter(Boolean) as RankedProspect[];
+    const seen = new Set<string>();
+    const rows: RankedProspect[] = [];
+    for (const id of campaign.prospectIds) {
+      if (seen.has(id)) continue;
+      const row = rankedLive.find((p) => p.id === id);
+      if (!row) continue;
+      seen.add(id);
+      rows.push(row);
+    }
+    return rows;
   }, [campaign, rankedLive]);
 
   const filteredCampaignRows = useMemo(() => {
@@ -581,13 +588,13 @@ export function DeskApp() {
           )}
 
           <div className="plan-list">
-            {filteredCampaignRows.map((p) => {
+            {filteredCampaignRows.map((p, index) => {
               const aiReason = Boolean(p.whyCallOverride);
               const outcome = outcomes[p.id] ?? p.outcome;
               return (
-              <article key={p.id} className="plan-item">
+              <article key={`${p.id}-${index}`} className="plan-item">
                 <div className="plan-index">
-                  {campaignRows.findIndex((x) => x.id === p.id) + 1}
+                  {index + 1}
                 </div>
                 <div className="plan-body">
                   <div className="plan-title-row">
